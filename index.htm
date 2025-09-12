@@ -28,15 +28,6 @@
         .modal-content {
             @apply bg-gray-700 p-6 rounded-lg shadow-xl;
         }
-        .color-swatch {
-            @apply w-8 h-8 rounded cursor-pointer border-2 border-white transition-all;
-        }
-        .color-swatch.selected {
-            @apply ring-2 ring-offset-2 ring-offset-gray-800 ring-white scale-110;
-        }
-        #wire-settings-panel button.selected {
-            @apply ring-2 ring-blue-400;
-        }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex h-screen overflow-hidden">
@@ -62,37 +53,12 @@
             <p>1. 拖曳元件至右方畫布</p>
             <p>2. 點擊「電線」工具連接</p>
             <p>3. 點擊開關可切換狀態</p>
-            <p class="mt-2"><span class="text-yellow-400">火線</span> / <span class="text-blue-400">中性線</span></p>
+            <p class="mt-2">點擊電線可編輯顏色粗細</p>
             <p class="text-xs mt-2">雙擊元件可進行編輯</p>
             <p class="text-xs mt-1">Shift+點擊斷路器可模擬跳脫</p>
         </div>
     </div>
     
-    <!-- Wire Settings Panel -->
-    <div id="wire-settings-panel" class="w-32 bg-gray-800 p-4 border-l-2 border-gray-700 flex-col items-center hidden">
-        <h3 class="text-lg font-bold mb-4 text-center">電線設定</h3>
-        <div class="space-y-4 w-full">
-            <div>
-                <p class="text-sm mb-2 text-center">顏色</p>
-                <div id="color-selector" class="grid grid-cols-2 gap-2 mx-auto">
-                    <div class="color-swatch selected" data-color="#f6e05e" style="background-color: #f6e05e;"></div> <!-- yellow -->
-                    <div class="color-swatch" data-color="#e53e3e" style="background-color: #e53e3e;"></div> <!-- red -->
-                    <div class="color-swatch" data-color="#4299e1" style="background-color: #4299e1;"></div> <!-- blue -->
-                    <div class="color-swatch" data-color="#48bb78" style="background-color: #48bb78;"></div> <!-- green -->
-                    <div class="color-swatch" data-color="#1a202c" style="background-color: #1a202c;"></div> <!-- black -->
-                </div>
-            </div>
-            <div class="pt-2">
-                <p class="text-sm mb-2 text-center">粗細</p>
-                <div class="flex flex-col space-y-2">
-                    <button id="thickness-thin" class="flex-1 bg-gray-600 p-2 rounded text-xs selected">細線</button>
-                    <button id="thickness-thick" class="flex-1 bg-gray-600 p-2 rounded text-xs">粗線</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
     <!-- Canvas Container -->
     <div id="canvas-container" class="flex-1 bg-gray-700 p-2 overflow-hidden">
         <canvas id="canvas"></canvas>
@@ -159,11 +125,6 @@
     const switchModal = document.getElementById('switch-modal');
     const closeSwitchModalBtn = document.getElementById('close-switch-modal');
 
-    const wireSettingsPanel = document.getElementById('wire-settings-panel');
-    const colorSelector = document.getElementById('color-selector');
-    const thicknessThinBtn = document.getElementById('thickness-thin');
-    const thicknessThickBtn = document.getElementById('thickness-thick');
-
     const GRID_SIZE = 20;
     let components = [];
     let wires = [];
@@ -178,11 +139,19 @@
     let isPressingButton = false;
     let dragOffset = { x: 0, y: 0 };
     
-    // Wire settings
-    let currentWireColor = '#f6e05e';
-    let currentWireThickness = 3;
-    let nextBulbColorIndex = 0;
+    // Wire editing
+    let selectedWire = null;
+    let wireEditorUI = { colorRect: null, thickRect: null };
+    const WIRE_COLORS = {
+        '#f6e05e': '#e53e3e', // yellow -> red
+        '#e53e3e': '#4299e1', // red -> blue
+        '#4299e1': '#48bb78', // blue -> green
+        '#48bb78': '#1a202c', // green -> black
+        '#1a202c': '#f6e05e', // black -> yellow
+    };
+    const WIRE_THICKNESS = { 3: 6, 6: 3 }; // thin -> thick, thick -> thin
 
+    let nextBulbColorIndex = 0;
     const bulbColors = [
         { color: '#f6e05e', label: 'YL' }, // Yellow
         { color: '#e53e3e', label: 'RL' },  // Red
@@ -224,17 +193,70 @@
         for (let y = 0; y < canvas.height; y += GRID_SIZE) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
     }
 
+    function drawWireEditor(ctx) {
+        if (!selectedWire) {
+            wireEditorUI = { colorRect: null, thickRect: null };
+            return;
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        selectedWire.path.forEach(p => {
+            minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+        });
+        const centerX = (minX + maxX) / 2; const centerY = (minY + maxY) / 2;
+        
+        const uiX = centerX + 15; const uiY = centerY - 10;
+        const swatchSize = 20; const buttonWidth = 30; const buttonHeight = 20; const padding = 5;
+
+        // Draw color swatch
+        ctx.fillStyle = selectedWire.color;
+        ctx.fillRect(uiX, uiY, swatchSize, swatchSize);
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(uiX, uiY, swatchSize, swatchSize);
+        wireEditorUI.colorRect = { x: uiX, y: uiY, width: swatchSize, height: swatchSize };
+
+        // Draw thickness button
+        const thickButtonX = uiX + swatchSize + padding;
+        ctx.fillStyle = '#4a5568';
+        ctx.fillRect(thickButtonX, uiY, buttonWidth, buttonHeight);
+        ctx.strokeStyle = 'white';
+        ctx.strokeRect(thickButtonX, uiY, buttonWidth, buttonHeight);
+        ctx.fillStyle = 'white';
+        ctx.font = `12px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const thickText = selectedWire.thickness === 3 ? '細' : '粗';
+        ctx.fillText(thickText, thickButtonX + buttonWidth / 2, uiY + buttonHeight / 2);
+        wireEditorUI.thickRect = { x: thickButtonX, y: uiY, width: buttonWidth, height: buttonHeight };
+    }
+
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawGrid();
         runSimulation();
         wires.forEach(w => w.draw(ctx));
+
+        if(selectedWire){
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.6)';
+            ctx.lineWidth = selectedWire.thickness + 5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            if(selectedWire.path.length > 0) {
+                 ctx.moveTo(selectedWire.path[0].x, selectedWire.path[0].y);
+                 for (let i = 1; i < selectedWire.path.length; i++) { ctx.lineTo(selectedWire.path[i].x, selectedWire.path[i].y); }
+            }
+            ctx.stroke();
+            ctx.lineCap = 'butt';
+        }
+
         components.forEach(c => c.draw(ctx));
 
         if (activeTool === 'wire' && wiringState.start && wiringState.end) {
             const previewPath = getPreviewPath();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.lineWidth = currentWireThickness;
+            ctx.lineWidth = 3;
             ctx.beginPath();
             if(previewPath.length > 0) {
                 ctx.moveTo(previewPath[0].x, previewPath[0].y);
@@ -244,6 +266,8 @@
             }
             ctx.stroke();
         }
+
+        drawWireEditor(ctx);
     }
     
     function getPreviewPath() {
@@ -347,16 +371,20 @@
             this.isPowered = (this.connectors[0].potential === 1 && this.connectors[1].potential === -1) || (this.connectors[0].potential === -1 && this.connectors[1].potential === 1);
             ctx.strokeStyle = this.isPowered ? this.color : '#a0aec0'; ctx.lineWidth = 2;
             ctx.beginPath(); ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2); ctx.stroke();
+            
+            ctx.shadowBlur = 0;
             if (this.isPowered) {
                 ctx.fillStyle = this.color; 
                 ctx.fill();
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = this.color;
             }
-            ctx.fillStyle = this.isPowered ? 'black' : '#a0aec0'; 
+
+            ctx.fillStyle = this.isPowered ? 'black' : this.color; 
             ctx.font = `${GRID_SIZE*0.9}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText(this.label, this.x + this.width / 2, this.y + this.height / 2);
             ctx.shadowBlur = 0;
+
             this.connectors.forEach(c => {
                 ctx.fillStyle = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : 'white';
                 ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, Math.PI * 2); ctx.fill();
@@ -389,7 +417,7 @@
         }
         toggle() { 
             if (this.switchType === 'rotary_2pos') { this.position = (this.position === 1) ? 2 : 1; } 
-            else if (this.switchType === 'rotary_3pos') { this.position = (this.position % 3) + 1; } // 1->2->3->1
+            else if (this.switchType === 'rotary_3pos') { this.position = (this.position % 3) + 1; }
         }
         press() { if (this.switchType.startsWith('pushbutton')) this.isPressed = true; }
         release() { if (this.switchType.startsWith('pushbutton')) this.isPressed = false; }
@@ -427,7 +455,7 @@
              const com = this.connectors.find(c=>c.type==='com');
              const out1 = this.connectors.find(c=>c.type==='out1');
              const out2 = this.connectors.find(c=>c.type==='out2');
-             const out3 = this.connectors.find(c=>c.type==='out3'); // Might be null
+             const out3 = this.connectors.find(c=>c.type==='out3');
 
              ctx.beginPath(); ctx.moveTo(com.x, com.y + 5); ctx.lineTo(com.x, com.y + GRID_SIZE); ctx.stroke();
              if(out1) { ctx.beginPath(); ctx.moveTo(out1.x, out1.y - 5); ctx.lineTo(out1.x, out1.y - GRID_SIZE); ctx.stroke(); }
@@ -466,7 +494,7 @@
             ctx.fillStyle = ctx.strokeStyle; ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.fillText('CB', this.x + this.width / 2, this.y + GRID_SIZE * 0.7);
             const poles = parseInt(this.poleType[0]);
-            for (let i = 0; i < poles; i++) { /* ... drawing logic same as before ... */ }
+            for (let i = 0; i < poles; i++) { /* Drawing logic omitted for brevity */ }
             this.connectors.forEach(c => {
                 ctx.fillStyle = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : 'white';
                 ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, Math.PI * 2); ctx.fill();
@@ -483,7 +511,7 @@
             this._rebuildConnectors();
         }
         _updateDimensions() {
-            this.width = GRID_SIZE * 6; // To fit 3 poles symmetrically
+            this.width = GRID_SIZE * 6;
             this.height = GRID_SIZE * 6 + (this.auxContacts.length * GRID_SIZE * 2);
         }
         _rebuildConnectors() {
@@ -494,9 +522,9 @@
             const mainOutY = this.y + GRID_SIZE * 5;
             const auxStartY = this.y + GRID_SIZE * 6;
 
-            // A1, A2 Coil connectors
-            this.connectors.push({ id: `${this.id}-A1`, parent: this, x: this.x + GRID_SIZE, y: coilY, type: 'coil', potential: 0 });
-            this.connectors.push({ id: `${this.id}-A2`, parent: this, x: this.x + this.width - GRID_SIZE, y: coilY, type: 'coil', potential: 0 });
+            // A1, A2 Coil connectors - MODIFIED
+            this.connectors.push({ id: `${this.id}-A1`, parent: this, x: this.x + GRID_SIZE * 2, y: coilY, type: 'coil', potential: 0 });
+            this.connectors.push({ id: `${this.id}-A2`, parent: this, x: this.x + this.width - GRID_SIZE * 2 , y: coilY, type: 'coil', potential: 0 });
             
             // L1, L2, L3 Main power input
             this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + GRID_SIZE, y: mainInY, type: 'main-in', pole: 0, potential: 0 });
@@ -508,18 +536,13 @@
             this.connectors.push({ id: `${this.id}-T2`, parent: this, x: this.x + GRID_SIZE * 3, y: mainOutY, type: 'main-out', pole: 1, potential: 0 });
             this.connectors.push({ id: `${this.id}-T3`, parent: this, x: this.x + this.width - GRID_SIZE, y: mainOutY, type: 'main-out', pole: 2, potential: 0 });
             
-            // Aux contacts
             this.auxContacts.forEach((contact, i) => {
                 const yPos = auxStartY + (i * GRID_SIZE * 2) + GRID_SIZE;
                 this.connectors.push({ id: `${this.id}-aux${i}-0`, parent: this, x: this.x, y: yPos, auxIndex: i, potential: 0 });
                 this.connectors.push({ id: `${this.id}-aux${i}-1`, parent: this, x: this.x + this.width, y: yPos, auxIndex: i, potential: 0 });
             });
         }
-        addAuxContact(type) {
-            this.auxContacts.push({ type });
-            this._updateDimensions();
-            this._rebuildConnectors();
-        }
+        addAuxContact(type) { this.auxContacts.push({ type }); this._updateDimensions(); this._rebuildConnectors(); }
         draw(ctx) {
             this.coilEnergized = (this.connectors.find(c=>c.id===`${this.id}-A1`).potential === 1 && this.connectors.find(c=>c.id===`${this.id}-A2`).potential === -1) || (this.connectors.find(c=>c.id===`${this.id}-A1`).potential === -1 && this.connectors.find(c=>c.id===`${this.id}-A2`).potential === 1);
             const baseIsPowered = this.connectors.some(c => c.potential !== 0);
@@ -535,9 +558,9 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            // Draw labels
-            ctx.fillText('A1', this.x + GRID_SIZE, this.y - GRID_SIZE * 0.5);
-            ctx.fillText('A2', this.x + this.width - GRID_SIZE, this.y - GRID_SIZE * 0.5);
+            // Draw labels - MODIFIED
+            ctx.fillText('A1', this.x + GRID_SIZE * 2, this.y - GRID_SIZE * 0.5);
+            ctx.fillText('A2', this.x + this.width - GRID_SIZE * 2, this.y - GRID_SIZE * 0.5);
             ctx.fillText('L1', this.x + GRID_SIZE, mainBoxY + GRID_SIZE*0.5);
             ctx.fillText('L2', this.x + GRID_SIZE * 3, mainBoxY + GRID_SIZE*0.5);
             ctx.fillText('L3', this.x + this.width - GRID_SIZE, mainBoxY + GRID_SIZE*0.5);
@@ -545,63 +568,37 @@
             ctx.fillText('T2', this.x + GRID_SIZE * 3, mainBoxY + mainBoxHeight - GRID_SIZE*0.5);
             ctx.fillText('T3', this.x + this.width - GRID_SIZE, mainBoxY + mainBoxHeight - GRID_SIZE*0.5);
             
-            // Draw Coil Symbol
             ctx.strokeRect(this.x + GRID_SIZE * 2, this.y, GRID_SIZE * 2, GRID_SIZE);
 
-            // Draw 3 main switches
             for (let i = 0; i < 3; i++) {
                 const xPos = this.x + GRID_SIZE + (i * GRID_SIZE * 2);
                 const startY = mainBoxY + GRID_SIZE;
                 const endY = mainBoxY + mainBoxHeight - GRID_SIZE;
 
-                ctx.beginPath();
-                ctx.arc(xPos, startY, 3, 0, Math.PI * 2);
-                ctx.moveTo(xPos, startY + 3);
-                ctx.lineTo(xPos, startY + GRID_SIZE * 0.5);
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.arc(xPos, endY, 3, 0, Math.PI * 2);
-                ctx.moveTo(xPos, endY - 3);
-                ctx.lineTo(xPos, endY - GRID_SIZE * 0.5);
-                ctx.stroke();
-
+                ctx.beginPath(); ctx.arc(xPos, startY, 3, 0, Math.PI * 2); ctx.moveTo(xPos, startY + 3); ctx.lineTo(xPos, startY + GRID_SIZE * 0.5); ctx.stroke();
+                ctx.beginPath(); ctx.arc(xPos, endY, 3, 0, Math.PI * 2); ctx.moveTo(xPos, endY - 3); ctx.lineTo(xPos, endY - GRID_SIZE * 0.5); ctx.stroke();
                 ctx.beginPath();
                 if (this.coilEnergized) {
-                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5);
-                    ctx.lineTo(xPos, endY - GRID_SIZE * 0.5);
+                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos, endY - GRID_SIZE * 0.5);
                 } else {
-                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5);
-                    ctx.lineTo(xPos + 8, startY + GRID_SIZE * 0.5 - 3);
+                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos + 8, startY + GRID_SIZE * 0.5 - 3);
                 }
                 ctx.stroke();
             }
 
-            // Dashed line for mechanical link
             ctx.setLineDash([2, 3]);
             ctx.beginPath();
-            const linkCoilY = this.y + GRID_SIZE;
-            const linkSwitchY = this.y + GRID_SIZE * 2 + GRID_SIZE * 0.5;
-            const linkCoilCenterX = this.x + this.width / 2;
-            const linkSwitchCenterX = this.x + this.width / 2;
-
-            ctx.moveTo(linkCoilCenterX, linkCoilY);
-            ctx.lineTo(linkSwitchCenterX, linkSwitchY - 5);
-            
+            const linkCoilY = this.y + GRID_SIZE; const linkSwitchY = this.y + GRID_SIZE * 2 + GRID_SIZE * 0.5;
+            const linkCoilCenterX = this.x + this.width / 2; const linkSwitchCenterX = this.x + this.width / 2;
+            ctx.moveTo(linkCoilCenterX, linkCoilY); ctx.lineTo(linkSwitchCenterX, linkSwitchY - 5);
             const movingBarY = this.coilEnergized ? linkSwitchY : linkSwitchY - 5;
-            ctx.moveTo(this.x + GRID_SIZE, movingBarY);
-            ctx.lineTo(this.x + this.width - GRID_SIZE, movingBarY);
-            
+            ctx.moveTo(this.x + GRID_SIZE, movingBarY); ctx.lineTo(this.x + this.width - GRID_SIZE, movingBarY);
             ctx.stroke();
             ctx.setLineDash([]);
             
-            // Aux contacts drawing logic is omitted for brevity but should exist
-            
             this.connectors.forEach(c => {
                 ctx.fillStyle = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : 'white';
-                ctx.beginPath();
-                ctx.arc(c.x, c.y, 4, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, Math.PI * 2); ctx.fill();
             });
         }
     }
@@ -647,7 +644,7 @@
     }
 
     class Wire {
-        constructor(startConnector, endConnector, path) { this.id = generateId(); this.start = startConnector; this.end = endConnector; this.potential = 0; this.color = currentWireColor; this.thickness = currentWireThickness; this.path = path; }
+        constructor(startConnector, endConnector, path) { this.id = generateId(); this.start = startConnector; this.end = endConnector; this.potential = 0; this.color = '#f6e05e'; this.thickness = 3; this.path = path; }
         calculatePath() {
             this.path[0].x = this.start.x; this.path[0].y = this.start.y;
             this.path[this.path.length - 1].x = this.end.x; this.path[this.path.length - 1].y = this.end.y;
@@ -672,10 +669,7 @@
         [1, -1].forEach(potential => {
             let queue = [];
             powerSources.forEach(nfb => {
-                const startConnectors = nfb.connectors.filter(c => 
-                    (potential === 1 && c.type === 'positive') || 
-                    (potential === -1 && c.type === 'neutral')
-                );
+                const startConnectors = nfb.connectors.filter(c => (potential === 1 && c.type === 'positive') || (potential === -1 && c.type === 'neutral') );
                 startConnectors.forEach(c => { c.potential = potential; queue.push(c); });
             });
 
@@ -714,7 +708,7 @@
                     }
                 }
                 if (comp.type === 'contactor') {
-                     const isCoilEnergized = (comp.connectors.find(c=>c.id===`${comp.id}-A1`).potential === 1 && comp.connectors.find(c=>c.id===`${comp.id}-A2`).potential === -1) || (comp.connectors.find(c=>c.id===`${comp.id}-A1`).potential === -1 && comp.connectors.find(c=>c.id===`${comp.id}-A2`).potential === 1);
+                     const isCoilEnergized = comp.coilEnergized;
                     if (isCoilEnergized) {
                         for(let p=0; p<3; p++) internalConnections.push([comp.connectors.find(c=>c.type==='main-in'&&c.pole===p), comp.connectors.find(c=>c.type==='main-out'&&c.pole===p)]);
                     }
@@ -783,6 +777,22 @@
 
     canvas.addEventListener('click', (e) => {
         const { x, y } = getCanvasMousePos(e);
+
+        if (selectedWire && wireEditorUI.colorRect) {
+            const cr = wireEditorUI.colorRect;
+            const tr = wireEditorUI.thickRect;
+            if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) {
+                selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e';
+                draw();
+                return;
+            }
+            if (x >= tr.x && x <= tr.x + tr.width && y >= tr.y && y <= tr.y + tr.height) {
+                selectedWire.thickness = WIRE_THICKNESS[selectedWire.thickness] || 3;
+                draw();
+                return;
+            }
+        }
+
         const clickedComponent = components.find(c => c.isUnderMouse(x, y));
         const clickedConnector = components.flatMap(c => c.connectors).find(c => Math.hypot(c.x - x, c.y - y) < GRID_SIZE / 2);
 
@@ -800,6 +810,7 @@
                 });
                 if (wireToDelete) wires = wires.filter(w => w.id !== wireToDelete.id);
             }
+            selectedWire = null;
         } else if (activeTool === 'wire') {
             if (clickedConnector) {
                 if (!wiringState.start) {
@@ -817,9 +828,36 @@
                 wiringPathPoints = pathSoFar;
                 wiringState.end = null;
             }
+            selectedWire = null;
         } else {
-            if (clickedComponent && clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
-            if (clickedComponent && typeof clickedComponent.toggle === 'function') clickedComponent.toggle(e.shiftKey);
+            if(activeTool === 'move') return;
+
+            let somethingWasClicked = false;
+            const wireToSelect = wires.find(w => {
+                if (!w.path || w.path.length < 2) return false;
+                for (let i = 0; i < w.path.length - 1; i++) {
+                    if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 6) return true;
+                }
+                return false;
+            });
+
+            if (wireToSelect) {
+                selectedWire = wireToSelect;
+                somethingWasClicked = true;
+            }
+
+            if (clickedComponent) {
+                if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
+                if (typeof clickedComponent.toggle === 'function') {
+                    clickedComponent.toggle(e.shiftKey);
+                    somethingWasClicked = true;
+                    selectedWire = null;
+                }
+            }
+            
+            if (!somethingWasClicked) {
+                selectedWire = null;
+            }
         }
         draw();
     });
@@ -830,7 +868,7 @@
             selectedComponentForEdit = clickedComponent;
             if (clickedComponent.type === 'contactor') { selectedContactor = clickedComponent; contactorModal.classList.remove('hidden'); }
             else if (clickedComponent.type === 'nfb') { poleModalTitle.textContent = `編輯 NFB 極性`; openPoleModal(['1P', '2P', '3P', '4P']); }
-            else if (clickedComponent.type === 'breaker') { poleModalTitle.textContent = `編輯断路器極數`; openPoleModal(['1P', '2P', '3P']); }
+            else if (clickedComponent.type === 'breaker') { poleModalTitle.textContent = `編輯斷路器極數`; openPoleModal(['1P', '2P', '3P']); }
             else if (clickedComponent.type === 'switch') { switchModal.classList.remove('hidden'); }
             else if (clickedComponent.type === 'bulb') { clickedComponent.cycleColor(); draw(); }
         }
@@ -840,9 +878,7 @@
         nextBulbColorIndex = (nextBulbColorIndex + 1) % bulbColors.length;
         const color = bulbColors[nextBulbColorIndex].color;
         bulbToolItem.style.boxShadow = `0 0 10px 3px ${color}`;
-        setTimeout(() => {
-            bulbToolItem.style.boxShadow = '';
-        }, 300);
+        setTimeout(() => { bulbToolItem.style.boxShadow = ''; }, 300);
     });
 
     function openPoleModal(options) {
@@ -861,7 +897,10 @@
         const pos = getCanvasMousePos(e);
         if (activeTool === 'move') {
             draggedComponent = components.find(c => c.isUnderMouse(pos.x, pos.y)) || null;
-            if (draggedComponent) dragOffset = { x: pos.x - draggedComponent.x, y: pos.y - draggedComponent.y };
+            if (draggedComponent) {
+                selectedWire = null;
+                dragOffset = { x: pos.x - draggedComponent.x, y: pos.y - draggedComponent.y };
+            }
         } else if (activeTool === null && e.button === 0) {
             const comp = components.find(c => c.isUnderMouse(pos.x, pos.y) && c.type === 'switch' && c.switchType.startsWith('pushbutton'));
             if (comp) { isPressingButton = true; comp.press(); draw(); }
@@ -877,16 +916,6 @@
     });
 
     wireToolBtn.addEventListener('click', () => setActiveTool('wire'));
-    wireToolBtn.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        wireSettingsPanel.classList.toggle('hidden');
-        if(!wireSettingsPanel.classList.contains('hidden')){
-            wireSettingsPanel.classList.add('flex');
-        } else {
-            wireSettingsPanel.classList.remove('flex');
-        }
-    });
-
     deleteToolBtn.addEventListener('click', () => setActiveTool('delete'));
     moveToolBtn.addEventListener('click', () => setActiveTool('move'));
 
@@ -899,13 +928,8 @@
     switchModal.addEventListener('click', (e) => { if (e.target.classList.contains('switch-type-btn')) { const type = e.target.dataset.switchType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'switch') { selectedComponentForEdit.setSwitchType(type); draw(); } switchModal.classList.add('hidden'); selectedComponentForEdit = null; } });
     closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
     
-    // Wire Settings Panel Logic
-    colorSelector.addEventListener('click', (e) => { if(e.target.classList.contains('color-swatch')) { currentWireColor = e.target.dataset.color; document.querySelectorAll('#color-selector .color-swatch').forEach(el => el.classList.remove('selected')); e.target.classList.add('selected'); } });
-    thicknessThinBtn.addEventListener('click', () => { currentWireThickness = 3; thicknessThinBtn.classList.add('selected'); thicknessThickBtn.classList.remove('selected'); });
-    thicknessThickBtn.addEventListener('click', () => { currentWireThickness = 6; thicknessThickBtn.classList.add('selected'); thicknessThinBtn.classList.remove('selected'); });
-
     // --- KEYBOARD HANDLERS ---
-    window.addEventListener('keydown', (e) => { if (activeTool === 'wire' && wiringState.start) { if (e.key === 'Escape') { wiringState = { start: null, end: null }; wiringPathPoints = []; draw(); } else if (e.key === 'Backspace' && wiringPathPoints.length > 1) { wiringPathPoints.pop(); draw(); } } });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if(activeTool === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; } else if (selectedWire) { selectedWire = null; } else if (activeTool) { setActiveTool(null); } draw(); } else if (activeTool === 'wire' && e.key === 'Backspace' && wiringPathPoints.length > 1) { wiringPathPoints.pop(); draw(); } });
 
     // --- INITIALIZATION ---
     window.addEventListener('resize', resizeCanvas);
@@ -914,4 +938,3 @@
 </script>
 </body>
 </html>
-
