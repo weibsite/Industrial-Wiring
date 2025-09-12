@@ -78,7 +78,7 @@
             <p>1. 點選或拖曳工具至畫布</p>
             <p>2. 久按元件可直接拖曳</p>
             <p>3. 再次點擊工具可取消</p>
-            <p class="mt-2">點選元件後按Del可刪除</p>
+            <p class="mt-2">點選物件後按Del可刪除</p>
             <p class="text-xs mt-2">雙擊元件可進行編輯</p>
             <p class="text-xs mt-2">滾輪縮放/中鍵平移</p>
         </div>
@@ -100,6 +100,17 @@
     </div>
     
     <!-- Modals -->
+    <div id="contactor-edit-modal" class="modal-bg hidden">
+        <div class="modal-content w-72">
+            <h3 class="text-lg font-bold mb-4">編輯電磁接觸器</h3>
+            <div class="flex flex-col space-y-4">
+                <button id="add-aux-contact" class="flex-1 bg-green-600 hover:bg-green-700 p-2 rounded">加裝輔助接點</button>
+                <button id="remove-aux-contact" class="flex-1 bg-red-600 hover:bg-red-700 p-2 rounded">移除輔助接點</button>
+            </div>
+            <button id="close-contactor-edit-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
     <div id="pole-modal" class="modal-bg hidden">
         <div class="modal-content w-auto">
             <h3 id="pole-modal-title" class="text-lg font-bold mb-4">編輯極數</h3>
@@ -133,6 +144,11 @@
     const wireColorPicker = document.getElementById('wire-color-picker');
     const wireThicknessPicker = document.getElementById('wire-thickness-picker');
 
+    const contactorEditModal = document.getElementById('contactor-edit-modal');
+    const addAuxContactBtn = document.getElementById('add-aux-contact');
+    const removeAuxContactBtn = document.getElementById('remove-aux-contact');
+    const closeContactorEditModalBtn = document.getElementById('close-contactor-edit-modal');
+
     const poleModal = document.getElementById('pole-modal');
     const poleModalTitle = document.getElementById('pole-modal-title');
     const poleOptionsContainer = document.getElementById('pole-options');
@@ -158,7 +174,7 @@
     let isDraggingPreview = false;
     let wiringState = { start: null, end: null };
     let wiringPathPoints = [];
-    let selectedComponent = null; // NEW: For selection box and deletion
+    let selectedComponent = null; // For selection box and deletion
     let selectedComponentForEdit = null;
     let draggedComponent = null;
     let isPressingButton = false;
@@ -702,39 +718,55 @@
         constructor(x, y) {
             super(x, y, 'contactor');
             this.coilEnergized = false;
+            this.hasLeftAux = false;
             this._updateDimensions();
             this._rebuildConnectors();
         }
         _updateDimensions() {
-            this.width = GRID_SIZE * 8;
+            const baseWidth = GRID_SIZE * 9;
+            const auxWidth = this.hasLeftAux ? GRID_SIZE * 3 : 0;
+            this.width = baseWidth + auxWidth;
             this.height = GRID_SIZE * 6;
         }
         _rebuildConnectors() {
             this.connectors = [];
+            const offsetX = this.hasLeftAux ? GRID_SIZE * 3 : 0;
             const coilY = this.y;
             const mainInY = this.y + GRID_SIZE * 2;
             const mainOutY = this.y + GRID_SIZE * 5;
 
-            this.connectors.push({ id: `${this.id}-A1`, parent: this, x: this.x + GRID_SIZE * 2, y: coilY, type: 'coil', potential: 0 });
-            this.connectors.push({ id: `${this.id}-A2`, parent: this, x: this.x + this.width - GRID_SIZE * 3 , y: coilY, type: 'coil', potential: 0 });
+            // A1, A2 Coil connectors
+            this.connectors.push({ id: `${this.id}-A1`, parent: this, x: this.x + offsetX + GRID_SIZE * 2, y: coilY, type: 'coil', potential: 0 });
+            this.connectors.push({ id: `${this.id}-A2`, parent: this, x: this.x + offsetX + GRID_SIZE * 4 , y: coilY, type: 'coil', potential: 0 });
             
-            this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + GRID_SIZE, y: mainInY, type: 'main-in', pole: 0, potential: 0 });
-            this.connectors.push({ id: `${this.id}-L2`, parent: this, x: this.x + GRID_SIZE * 3, y: mainInY, type: 'main-in', pole: 1, potential: 0 });
-            this.connectors.push({ id: `${this.id}-L3`, parent: this, x: this.x + GRID_SIZE * 5, y: mainInY, type: 'main-in', pole: 2, potential: 0 });
+            // Main contacts L1,L2,L3
+            this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + offsetX + GRID_SIZE, y: mainInY, type: 'main-in', pole: 0, potential: 0 });
+            this.connectors.push({ id: `${this.id}-L2`, parent: this, x: this.x + offsetX + GRID_SIZE * 3, y: mainInY, type: 'main-in', pole: 1, potential: 0 });
+            this.connectors.push({ id: `${this.id}-L3`, parent: this, x: this.x + offsetX + GRID_SIZE * 5, y: mainInY, type: 'main-in', pole: 2, potential: 0 });
             
-            this.connectors.push({ id: `${this.id}-T1`, parent: this, x: this.x + GRID_SIZE, y: mainOutY, type: 'main-out', pole: 0, potential: 0 });
-            this.connectors.push({ id: `${this.id}-T2`, parent: this, x: this.x + GRID_SIZE * 3, y: mainOutY, type: 'main-out', pole: 1, potential: 0 });
-            this.connectors.push({ id: `${this.id}-T3`, parent: this, x: this.x + GRID_SIZE * 5, y: mainOutY, type: 'main-out', pole: 2, potential: 0 });
+            // Main contacts T1,T2,T3
+            this.connectors.push({ id: `${this.id}-T1`, parent: this, x: this.x + offsetX + GRID_SIZE, y: mainOutY, type: 'main-out', pole: 0, potential: 0 });
+            this.connectors.push({ id: `${this.id}-T2`, parent: this, x: this.x + offsetX + GRID_SIZE * 3, y: mainOutY, type: 'main-out', pole: 1, potential: 0 });
+            this.connectors.push({ id: `${this.id}-T3`, parent: this, x: this.x + offsetX + GRID_SIZE * 5, y: mainOutY, type: 'main-out', pole: 2, potential: 0 });
 
-            this.connectors.push({ id: `${this.id}-aux-no-in`, parent: this, x: this.x + this.width - GRID_SIZE, y: mainInY, type: 'aux-no-in', potential: 0 });
-            this.connectors.push({ id: `${this.id}-aux-no-out`, parent: this, x: this.x + this.width - GRID_SIZE, y: mainOutY, type: 'aux-no-out', potential: 0 });
-            
-            this.connectors.push({ id: `${this.id}-aux-nc-in`, parent: this, x: this.x, y: mainOutY - GRID_SIZE, type: 'aux-nc-in', potential: 0 });
-            this.connectors.push({ id: `${this.id}-aux-nc-out`, parent: this, x: this.x, y: mainInY + GRID_SIZE, type: 'aux-nc-out', potential: 0 });
+            // Right side built-in aux contacts
+            this.connectors.push({ id: `${this.id}-aux-no-in`, parent: this, x: this.x + offsetX + GRID_SIZE * 7, y: mainInY, type: 'aux-no-in', potential: 0 });
+            this.connectors.push({ id: `${this.id}-aux-no-out`, parent: this, x: this.x + offsetX + GRID_SIZE * 7, y: mainOutY, type: 'aux-no-out', potential: 0 });
+            this.connectors.push({ id: `${this.id}-aux-nc-in`, parent: this, x: this.x + offsetX + GRID_SIZE * 8, y: mainInY, type: 'aux-nc-in', potential: 0 });
+            this.connectors.push({ id: `${this.id}-aux-nc-out`, parent: this, x: this.x + offsetX + GRID_SIZE * 8, y: mainOutY, type: 'aux-nc-out', potential: 0 });
+
+            // Left side add-on aux contacts
+            if (this.hasLeftAux) {
+                this.connectors.push({ id: `${this.id}-aux-left-nc-in`, parent: this, x: this.x + GRID_SIZE, y: mainInY, type: 'aux-left-nc-in', potential: 0 });
+                this.connectors.push({ id: `${this.id}-aux-left-nc-out`, parent: this, x: this.x + GRID_SIZE, y: mainOutY, type: 'aux-left-nc-out', potential: 0 });
+                this.connectors.push({ id: `${this.id}-aux-left-no-in`, parent: this, x: this.x + GRID_SIZE * 2, y: mainInY, type: 'aux-left-no-in', potential: 0 });
+                this.connectors.push({ id: `${this.id}-aux-left-no-out`, parent: this, x: this.x + GRID_SIZE * 2, y: mainOutY, type: 'aux-left-no-out', potential: 0 });
+            }
         }
         draw(ctx) {
             this.coilEnergized = (this.connectors.find(c=>c.id===`${this.id}-A1`).potential === 1 && this.connectors.find(c=>c.id===`${this.id}-A2`).potential === -1) || (this.connectors.find(c=>c.id===`${this.id}-A1`).potential === -1 && this.connectors.find(c=>c.id===`${this.id}-A2`).potential === 1);
             const baseIsPowered = this.connectors.some(c => c.potential !== 0);
+            const offsetX = this.hasLeftAux ? GRID_SIZE * 3 : 0;
             ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
             ctx.lineWidth = 2;
             
@@ -747,60 +779,93 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            ctx.fillText('A1', this.x + GRID_SIZE * 2, this.y - GRID_SIZE * 0.5);
-            ctx.fillText('A2', this.x + this.width - GRID_SIZE * 3, this.y - GRID_SIZE * 0.5);
-            ctx.strokeRect(this.x + GRID_SIZE * 2, this.y, this.width - GRID_SIZE * 5, GRID_SIZE);
-
-            const mainLabels = ['L1','L2','L3','NO'];
-            const auxLabels = ['T1','T2','T3','NO'];
+            ctx.fillText('A1', this.x + offsetX + GRID_SIZE * 2, this.y - GRID_SIZE * 0.5);
+            ctx.fillText('A2', this.x + offsetX + GRID_SIZE * 4, this.y - GRID_SIZE * 0.5);
+            ctx.strokeRect(this.x + offsetX + GRID_SIZE * 2, this.y, GRID_SIZE * 2, GRID_SIZE);
             
-            for (let i = 0; i < 4; i++) {
-                const xPos = this.x + GRID_SIZE + (i * GRID_SIZE * 2);
+            // Draw main contacts
+            for (let i = 0; i < 3; i++) {
+                const xPos = this.x + offsetX + GRID_SIZE + (i * GRID_SIZE * 2);
                 const startY = mainBoxY + GRID_SIZE;
                 const endY = mainBoxY + mainBoxHeight - GRID_SIZE;
-
-                ctx.fillText(mainLabels[i], xPos, startY - GRID_SIZE * 0.5);
-                ctx.fillText(auxLabels[i], xPos, endY + GRID_SIZE * 0.5);
-                
+                ctx.fillText(`L${i+1}`, xPos, startY - GRID_SIZE * 0.5);
+                ctx.fillText(`T${i+1}`, xPos, endY + GRID_SIZE * 0.5);
                 ctx.beginPath(); ctx.arc(xPos, startY, 3, 0, Math.PI * 2); ctx.moveTo(xPos, startY + 3); ctx.lineTo(xPos, startY + GRID_SIZE * 0.5); ctx.stroke();
                 ctx.beginPath(); ctx.arc(xPos, endY, 3, 0, Math.PI * 2); ctx.moveTo(xPos, endY - 3); ctx.lineTo(xPos, endY - GRID_SIZE * 0.5); ctx.stroke();
-                
                 ctx.beginPath();
-                const isAuxNO = i === 3;
-                if ((!isAuxNO && this.coilEnergized) || (isAuxNO && this.coilEnergized)) {
-                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos, endY - GRID_SIZE * 0.5);
-                } else {
-                    ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos + 8, startY + GRID_SIZE * 0.5 - 3);
-                }
+                if (this.coilEnergized) { ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos, endY - GRID_SIZE * 0.5); } 
+                else { ctx.moveTo(xPos, startY + GRID_SIZE * 0.5); ctx.lineTo(xPos + 8, startY + GRID_SIZE * 0.5 - 3); }
                 ctx.stroke();
             }
 
-            const ncIn = this.connectors.find(c => c.type === 'aux-nc-in');
-            const ncOut = this.connectors.find(c => c.type === 'aux-nc-out');
-            ctx.fillText('NC', ncIn.x - GRID_SIZE * 0.5, (ncIn.y + ncOut.y) / 2);
+            // Separator between Main and Right Aux
+            ctx.beginPath(); ctx.moveTo(this.x + offsetX + GRID_SIZE * 6, mainBoxY); ctx.lineTo(this.x + offsetX + GRID_SIZE * 6, mainBoxY + mainBoxHeight); ctx.stroke();
+            
+            // Draw Right Aux Contacts
+            const auxStartY = mainBoxY + GRID_SIZE;
+            const auxEndY = mainBoxY + mainBoxHeight - GRID_SIZE;
+            // Right NO
+            const noX = this.x + offsetX + GRID_SIZE * 7;
+            ctx.fillText('NO', noX, auxStartY - GRID_SIZE * 0.5);
+            ctx.fillText('NO', noX, auxEndY + GRID_SIZE * 0.5);
+            ctx.beginPath(); ctx.arc(noX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(noX, auxStartY + 3); ctx.lineTo(noX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
+            ctx.beginPath(); ctx.arc(noX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(noX, auxEndY - 3); ctx.lineTo(noX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
             ctx.beginPath();
-            ctx.arc(ncIn.x, ncIn.y, 3, 0, Math.PI * 2);
-            ctx.moveTo(ncIn.x+3, ncIn.y); ctx.lineTo(ncIn.x + GRID_SIZE, ncIn.y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(ncOut.x, ncOut.y, 3, 0, Math.PI * 2);
-            ctx.moveTo(ncOut.x+3, ncOut.y); ctx.lineTo(ncOut.x + GRID_SIZE, ncOut.y);
-            ctx.stroke();
-            ctx.beginPath();
-            if(this.coilEnergized) {
-                ctx.moveTo(ncIn.x + GRID_SIZE, ncIn.y); ctx.lineTo(ncIn.x + GRID_SIZE + 8, ncIn.y - 3);
-            } else {
-                ctx.moveTo(ncIn.x + GRID_SIZE, ncIn.y); ctx.lineTo(ncOut.x + GRID_SIZE, ncOut.y);
-                ctx.moveTo(ncIn.x + GRID_SIZE, ncOut.y); ctx.lineTo(ncOut.x + GRID_SIZE, ncIn.y);
-            }
+            if (this.coilEnergized) { ctx.moveTo(noX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(noX, auxEndY - GRID_SIZE * 0.5); }
+            else { ctx.moveTo(noX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(noX + 8, auxStartY + GRID_SIZE * 0.5 - 3); }
             ctx.stroke();
 
+            // Right NC
+            const ncX = this.x + offsetX + GRID_SIZE * 8;
+            ctx.fillText('NC', ncX, auxStartY - GRID_SIZE * 0.5);
+            ctx.fillText('NC', ncX, auxEndY + GRID_SIZE * 0.5);
+            ctx.beginPath(); ctx.arc(ncX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(ncX, auxStartY + 3); ctx.lineTo(ncX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
+            ctx.beginPath(); ctx.arc(ncX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(ncX, auxEndY - 3); ctx.lineTo(ncX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
+            ctx.beginPath();
+            if (!this.coilEnergized) {
+                ctx.moveTo(ncX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(ncX, auxEndY - GRID_SIZE * 0.5);
+                const midY = (auxStartY + auxEndY) / 2;
+                ctx.moveTo(ncX - 4, midY - 8); ctx.lineTo(ncX + 4, midY + 8);
+            } else { ctx.moveTo(ncX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(ncX + 8, auxStartY + GRID_SIZE * 0.5 - 3); }
+            ctx.stroke();
+
+            // Draw Left Aux Contacts if they exist
+            if (this.hasLeftAux) {
+                // Separator between Left Aux and Main
+                ctx.beginPath(); ctx.moveTo(this.x + GRID_SIZE * 3, mainBoxY); ctx.lineTo(this.x + GRID_SIZE * 3, mainBoxY + mainBoxHeight); ctx.stroke();
+                
+                // Left NC
+                const leftNcX = this.x + GRID_SIZE;
+                ctx.fillText('NC', leftNcX, auxStartY - GRID_SIZE * 0.5);
+                ctx.fillText('NC', leftNcX, auxEndY + GRID_SIZE * 0.5);
+                ctx.beginPath(); ctx.arc(leftNcX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(leftNcX, auxStartY + 3); ctx.lineTo(leftNcX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
+                ctx.beginPath(); ctx.arc(leftNcX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(leftNcX, auxEndY - 3); ctx.lineTo(leftNcX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
+                ctx.beginPath();
+                if (!this.coilEnergized) {
+                    ctx.moveTo(leftNcX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(leftNcX, auxEndY - GRID_SIZE * 0.5);
+                    const midY = (auxStartY + auxEndY) / 2;
+                    ctx.moveTo(leftNcX - 4, midY - 8); ctx.lineTo(leftNcX + 4, midY + 8);
+                } else { ctx.moveTo(leftNcX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(leftNcX + 8, auxStartY + GRID_SIZE * 0.5 - 3); }
+                ctx.stroke();
+
+                // Left NO
+                const leftNoX = this.x + GRID_SIZE * 2;
+                ctx.fillText('NO', leftNoX, auxStartY - GRID_SIZE * 0.5);
+                ctx.fillText('NO', leftNoX, auxEndY + GRID_SIZE * 0.5);
+                ctx.beginPath(); ctx.arc(leftNoX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(leftNoX, auxStartY + 3); ctx.lineTo(leftNoX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
+                ctx.beginPath(); ctx.arc(leftNoX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(leftNoX, auxEndY - 3); ctx.lineTo(leftNoX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
+                ctx.beginPath();
+                if (this.coilEnergized) { ctx.moveTo(leftNoX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(leftNoX, auxEndY - GRID_SIZE * 0.5); }
+                else { ctx.moveTo(leftNoX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(leftNoX + 8, auxStartY + GRID_SIZE * 0.5 - 3); }
+                ctx.stroke();
+            }
+            
             ctx.setLineDash([2, 3]);
             ctx.beginPath();
             const linkCoilY = this.y + GRID_SIZE; 
             const linkSwitchY = this.y + GRID_SIZE * 2.5;
-            ctx.moveTo(this.x + this.width/2 - GRID_SIZE, linkCoilY); 
-            ctx.lineTo(this.x + this.width/2 - GRID_SIZE, linkSwitchY - 5);
+            ctx.moveTo(this.x + offsetX + this.width/4, linkCoilY); 
+            ctx.lineTo(this.x + offsetX + this.width/4, linkSwitchY - 5);
             ctx.stroke();
             ctx.setLineDash([]);
             
@@ -942,8 +1007,14 @@
                              internalConnections.push([comp.connectors.find(c=>c.type==='main-in'&&c.pole===p), comp.connectors.find(c=>c.type==='main-out'&&c.pole===p)]);
                         }
                         internalConnections.push([comp.connectors.find(c=>c.type==='aux-no-in'), comp.connectors.find(c=>c.type==='aux-no-out')]);
+                        if(comp.hasLeftAux) {
+                            internalConnections.push([comp.connectors.find(c=>c.type==='aux-left-no-in'), comp.connectors.find(c=>c.type==='aux-left-no-out')]);
+                        }
                     } else {
                         internalConnections.push([comp.connectors.find(c=>c.type==='aux-nc-in'), comp.connectors.find(c=>c.type==='aux-nc-out')]);
+                        if(comp.hasLeftAux) {
+                            internalConnections.push([comp.connectors.find(c=>c.type==='aux-left-nc-in'), comp.connectors.find(c=>c.type==='aux-left-nc-out')]);
+                        }
                     }
                 }
                 
@@ -1154,6 +1225,16 @@
                 clickedComponent.isBlown = false;
                 draw();
             }
+            else if (clickedComponent.type === 'contactor') {
+                if (clickedComponent.hasLeftAux) {
+                    addAuxContactBtn.style.display = 'none';
+                    removeAuxContactBtn.style.display = 'block';
+                } else {
+                    addAuxContactBtn.style.display = 'block';
+                    removeAuxContactBtn.style.display = 'none';
+                }
+                contactorEditModal.classList.remove('hidden');
+            }
         }
     });
 
@@ -1302,6 +1383,9 @@
         if(draggedGhost && !draggedGhost.isColliding) {
             const newComp = createTempComponent(draggedGhost.type, draggedGhost.x, draggedGhost.y);
             if(newComp) components.push(newComp);
+            if (activeToolType === 'delete') {
+                handleToolClick(document.getElementById('delete-tool'));
+            }
         }
         draggedToolType = null;
         draggedGhost = null;
@@ -1329,10 +1413,37 @@
             components = components.filter(c => c.id !== selectedComponent.id);
             selectedComponent = null;
             draw();
+        } else if (e.key === 'Delete' && selectedWire) {
+            wires = wires.filter(w => w.id !== selectedWire.id);
+            selectedWire = null;
+            draw();
         }
     });
     
     // --- MODAL LOGIC ---
+    addAuxContactBtn.addEventListener('click', () => {
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'contactor') {
+            selectedComponentForEdit.hasLeftAux = true;
+            selectedComponentForEdit._updateDimensions();
+            selectedComponentForEdit._rebuildConnectors();
+            contactorEditModal.classList.add('hidden');
+            draw();
+        }
+    });
+    removeAuxContactBtn.addEventListener('click', () => {
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'contactor') {
+            selectedComponentForEdit.hasLeftAux = false;
+            selectedComponentForEdit._updateDimensions();
+            selectedComponentForEdit._rebuildConnectors();
+            contactorEditModal.classList.add('hidden');
+            draw();
+        }
+    });
+    closeContactorEditModalBtn.addEventListener('click', () => {
+        contactorEditModal.classList.add('hidden');
+        selectedComponentForEdit = null;
+    });
+
     poleOptionsContainer.addEventListener('click', (e) => { if (e.target.classList.contains('pole-btn')) { const poles = e.target.dataset.poles; if (selectedComponentForEdit) { selectedComponentForEdit.setPoles(poles); draw(); } poleModal.classList.add('hidden'); selectedComponentForEdit = null; } });
     closePoleModalBtn.addEventListener('click', () => { poleModal.classList.add('hidden'); selectedComponentForEdit = null; });
     switchModal.addEventListener('click', (e) => { if (e.target.classList.contains('switch-type-btn')) { const type = e.target.dataset.switchType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'switch') { selectedComponentForEdit.setSwitchType(type); draw(); } switchModal.classList.add('hidden'); selectedComponentForEdit = null; } });
@@ -1352,6 +1463,7 @@
                 if (c.isBlown !== undefined) data.isBlown = c.isBlown;
                 if (c.state) data.state = c.state;
                 if (c.position) data.position = c.position;
+                if (c.hasLeftAux !== undefined) data.hasLeftAux = c.hasLeftAux;
                 return data;
             }),
             wires: wires.map(w => ({
