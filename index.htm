@@ -13,11 +13,28 @@
             user-select: none;
         }
         .tool-item {
-            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-grab shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
+            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-pointer shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
+            position: relative; /* Needed for pseudo-element positioning */
+            z-index: 1;
+        }
+        /* Ensure text and icon are on top */
+        .tool-item > * {
+            position: relative;
+            z-index: 10;
         }
         .tool-item.active {
-            @apply bg-gray-700 border-2 border-red-500;
+             border-color: #ef4444; /* red-500 */
         }
+        .tool-item.active::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-color: #ef4444; /* red-500 */
+            opacity: 0.5;
+            border-radius: 0.5rem; /* rounded-lg */
+            z-index: 5;
+        }
+
         canvas {
             background-color: #2d3748; /* bg-gray-800 */
             cursor: default;
@@ -36,31 +53,31 @@
     <div id="toolbar" class="w-48 bg-gray-800 p-4 flex flex-col space-y-4 shadow-lg z-10">
         <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2">工具列</h2>
         
-        <div class="tool-item" draggable="true" data-type="nfb">⚡ 無熔絲開關</div>
-        <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb">💡 燈泡</div>
-        <div class="tool-item" draggable="true" data-type="switch">🔘 開關元件</div>
-        <div class="tool-item" draggable="true" data-type="breaker">🛡️ 斷路器</div>
-        <div class="tool-item" draggable="true" data-type="contactor">🧲 電磁接觸器</div>
-        <div class="tool-item" draggable="true" data-type="fuse">🔥 保險絲座</div>
+        <div class="tool-item" data-type="nfb"><span>⚡ 無熔絲開關</span></div>
+        <div id="bulb-tool-item" class="tool-item" data-type="bulb"><span>💡 燈泡</span></div>
+        <div class="tool-item" data-type="switch"><span>🔘 開關元件</span></div>
+        <div class="tool-item" data-type="breaker"><span>🛡️ 斷路器</span></div>
+        <div class="tool-item" data-type="contactor"><span>🧲 電磁接觸器</span></div>
+        <div class="tool-item" data-type="fuse"><span>🔥 保險絲座</span></div>
 
         <div class="pt-4 mt-4 border-t border-gray-600 space-y-4">
-            <button id="move-tool" class="tool-item cursor-pointer">🪛 移動</button>
+            <button id="move-tool" class="tool-item" data-type="move"><span>🪛 移動</span></button>
             
             <div>
-                 <button id="wire-tool" class="tool-item cursor-pointer">〰️ 電線</button>
+                 <button id="wire-tool" class="tool-item" data-type="wire"><span>〰️ 電線</span></button>
                  <div class="flex items-center justify-center space-x-2 mt-2">
                     <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
                     <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
                  </div>
             </div>
 
-            <button id="delete-tool" class="tool-item cursor-pointer">🗑️ 刪除</button>
+            <button id="delete-tool" class="tool-item" data-type="delete"><span>🗑️ 刪除</span></button>
         </div>
 
         <div class="mt-auto text-center text-xs text-gray-400">
-            <p>1. 拖曳元件至右方畫布</p>
+            <p>1. 點選工具後在畫布施工</p>
             <p>2. 久按元件可直接拖曳</p>
-            <p>3. 點擊「電線」連接</p>
+            <p>3. 再次點擊工具可取消</p>
             <p class="mt-2">點擊電線可編輯/刪除</p>
             <p class="text-xs mt-2">雙擊元件可進行編輯</p>
         </div>
@@ -113,10 +130,6 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const toolbar = document.getElementById('toolbar');
-    const bulbToolItem = document.getElementById('bulb-tool-item');
-    const wireToolBtn = document.getElementById('wire-tool');
-    const deleteToolBtn = document.getElementById('delete-tool');
-    const moveToolBtn = document.getElementById('move-tool');
     const canvasContainer = document.getElementById('canvas-container');
     const wireColorPicker = document.getElementById('wire-color-picker');
     const wireThicknessPicker = document.getElementById('wire-thickness-picker');
@@ -137,18 +150,18 @@
     const GRID_SIZE = 20;
     let components = [];
     let wires = [];
-    let draggedType = null;
-    let activeTool = null; // 'wire', 'delete', 'move'
-    let wiringState = { start: null, end: null };
-    let wiringPathPoints = []; // For multi-point wiring
     let nextId = 0;
+    
+    // --- State Management ---
+    let activeToolType = null;
+    let placementPreview = null;
+    let wiringState = { start: null, end: null };
+    let wiringPathPoints = [];
     let selectedContactor = null;
     let selectedComponentForEdit = null;
     let draggedComponent = null;
     let isPressingButton = false;
     let dragOffset = { x: 0, y: 0 };
-    
-    // --- Drag & Interaction State ---
     let longPressTimer = null;
     let isLongPressDrag = false;
     let potentialDragComponent = null;
@@ -274,21 +287,34 @@
 
         components.forEach(c => c.draw(ctx));
 
-        // Draw dragged component highlight
-        if ((activeTool === 'move' || isLongPressDrag) && draggedComponent) {
+        if (placementPreview) {
+            ctx.save();
+            ctx.globalAlpha = 0.7;
+            let tempComp;
+            const { x, y, type } = placementPreview;
+            switch (type) {
+                case 'nfb': tempComp = new NFB(x, y); break;
+                case 'bulb': tempComp = new Bulb(x, y, nextBulbColorIndex); break;
+                case 'switch': tempComp = new Switch(x, y); break;
+                case 'breaker': tempComp = new CircuitBreaker(x, y); break;
+                case 'contactor': tempComp = new MagneticContactor(x, y); break;
+                case 'fuse': tempComp = new FuseHolder(x, y); break;
+            }
+            if (tempComp) {
+                tempComp.draw(ctx);
+            }
+            ctx.restore();
+        }
+        
+        if (draggedComponent) {
             ctx.strokeStyle = '#e53e3e';
             ctx.lineWidth = 2;
             ctx.setLineDash([6, 3]);
-            ctx.strokeRect(
-                draggedComponent.x - 2, 
-                draggedComponent.y - 2, 
-                draggedComponent.width + 4, 
-                draggedComponent.height + 4
-            );
+            ctx.strokeRect(draggedComponent.x - 2, draggedComponent.y - 2, draggedComponent.width + 4, draggedComponent.height + 4);
             ctx.setLineDash([]);
         }
 
-        if (activeTool === 'wire' && wiringState.start && wiringState.end) {
+        if (activeToolType === 'wire' && wiringState.start && wiringState.end) {
             const previewPath = getPreviewPath();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.lineWidth = defaultWireThickness;
@@ -405,7 +431,9 @@
         draw(ctx) {
             this.isPowered = (this.connectors[0].potential === 1 && this.connectors[1].potential === -1) || (this.connectors[0].potential === -1 && this.connectors[1].potential === 1);
             ctx.strokeStyle = this.isPowered ? this.color : '#a0aec0'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2); ctx.stroke();
+            
+            ctx.beginPath(); 
+            ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
             
             ctx.shadowBlur = 0;
             if (this.isPowered) {
@@ -414,6 +442,7 @@
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = this.color;
             }
+            ctx.stroke();
 
             ctx.fillStyle = this.isPowered ? 'black' : this.color; 
             ctx.font = `${GRID_SIZE*0.9}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -787,29 +816,28 @@
     }
 
     // --- EVENT HANDLERS ---
-    function setActiveTool(tool) {
-        const newActiveTool = activeTool === tool ? null : tool;
-        [wireToolBtn, deleteToolBtn, moveToolBtn].forEach(btn => btn.classList.remove('active'));
-        if (newActiveTool) document.getElementById(`${newActiveTool}-tool`).classList.add('active');
-        activeTool = newActiveTool;
-        canvas.style.cursor = 'default';
-        if (activeTool === 'wire') canvas.style.cursor = 'crosshair';
-        if (activeTool === 'delete') canvas.style.cursor = 'not-allowed';
-        if (activeTool === 'move') canvas.style.cursor = 'move';
-        wiringState = { start: null, end: null }; wiringPathPoints = [];
-    }
-    toolbar.addEventListener('dragstart', (e) => { if (e.target.classList.contains('tool-item') && e.target.dataset.type) draggedType = e.target.dataset.type; });
-    canvas.addEventListener('dragover', (e) => e.preventDefault());
-    canvas.addEventListener('drop', (e) => {
-        e.preventDefault(); if (!draggedType) return; const { x, y } = getCanvasMousePos(e); let newComp;
-        switch (draggedType) {
-            case 'nfb': newComp = new NFB(x, y); break; 
-            case 'bulb': newComp = new Bulb(x, y, nextBulbColorIndex); break;
-            case 'switch': newComp = new Switch(x, y); break; case 'breaker': newComp = new CircuitBreaker(x,y); break;
-            case 'contactor': newComp = new MagneticContactor(x, y); break; case 'fuse': newComp = new FuseHolder(x,y); break;
+    function handleToolClick(toolElement) {
+        placementPreview = null;
+        wiringState = { start: null, end: null };
+        wiringPathPoints = [];
+        const clickedToolType = toolElement.dataset.type;
+
+        if (toolElement.classList.contains('active')) {
+            toolElement.classList.remove('active');
+            activeToolType = null;
+            canvas.style.cursor = 'default';
+        } else {
+            document.querySelectorAll('#toolbar .tool-item.active').forEach(el => el.classList.remove('active'));
+            toolElement.classList.add('active');
+            activeToolType = clickedToolType;
+
+            canvas.style.cursor = 'default';
+            if (activeToolType === 'move') canvas.style.cursor = 'grab';
+            if (activeToolType === 'wire') canvas.style.cursor = 'crosshair';
+            if (activeToolType === 'delete') canvas.style.cursor = 'not-allowed';
         }
-        if (newComp) components.push(newComp); draggedType = null; draw();
-    });
+        draw();
+    }
 
     canvas.addEventListener('mousemove', (e) => {
         const pos = getCanvasMousePos(e);
@@ -822,49 +850,80 @@
             }
         }
 
-        if ((activeTool === 'move' || isLongPressDrag) && draggedComponent) { 
+        if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
             const newX = snapToGrid(pos.x - dragOffset.x); 
             const newY = snapToGrid(pos.y - dragOffset.y); 
             draggedComponent.updatePosition(newX, newY);
             justDragged = true;
         } 
-        else if (activeTool === 'wire' && wiringState.start) { 
+        else if (activeToolType === 'wire' && wiringState.start) { 
             wiringState.end = pos; 
         }
         draw();
     });
 
     canvas.addEventListener('click', (e) => {
-        if (justDragged) {
-            return;
-        }
+        if (justDragged) return;
 
         const { x, y } = getCanvasMousePos(e);
 
         if (selectedWire && wireEditorUI.colorRect) {
-            const cr = wireEditorUI.colorRect;
-            const tr = wireEditorUI.thickRect;
-            const dr = wireEditorUI.deleteRect;
-
+            const cr = wireEditorUI.colorRect; const tr = wireEditorUI.thickRect; const dr = wireEditorUI.deleteRect;
             if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) {
-                selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e';
-                draw(); return;
+                selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return;
             }
             if (x >= tr.x && x <= tr.x + tr.width && y >= tr.y && y <= tr.y + tr.height) {
-                selectedWire.thickness = WIRE_THICKNESS[selectedWire.thickness] || 3;
-                draw(); return;
+                selectedWire.thickness = WIRE_THICKNESS[selectedWire.thickness] || 3; draw(); return;
             }
             if (x >= dr.x && x <= dr.x + dr.width && y >= dr.y && y <= dr.y + dr.height) {
-                wires = wires.filter(w => w.id !== selectedWire.id);
-                selectedWire = null;
-                draw(); return;
+                wires = wires.filter(w => w.id !== selectedWire.id); selectedWire = null; draw(); return;
             }
         }
 
+        const isComponentTool = ['nfb', 'bulb', 'switch', 'breaker', 'contactor', 'fuse'].includes(activeToolType);
+        if (isComponentTool) {
+            const isOccupied = components.some(c => c.isUnderMouse(x, y));
+
+            if (placementPreview) {
+                // Check if the placement spot is occupied by a DIFFERENT component
+                const isOccupiedByOther = components.some(c => c.isUnderMouse(placementPreview.x + 1, placementPreview.y + 1));
+                 if(isOccupiedByOther){
+                     placementPreview = null;
+                     draw();
+                     return;
+                 }
+                
+                let newComp; const compX = placementPreview.x; const compY = placementPreview.y;
+                switch (placementPreview.type) {
+                    case 'nfb': newComp = new NFB(compX, compY); break;
+                    case 'bulb': newComp = new Bulb(compX, compY, nextBulbColorIndex); break;
+                    case 'switch': newComp = new Switch(compX, compY); break;
+                    case 'breaker': newComp = new CircuitBreaker(compX, compY); break;
+                    case 'contactor': newComp = new MagneticContactor(compX, compY); break;
+                    case 'fuse': newComp = new FuseHolder(compX, compY); break;
+                }
+                if (newComp) components.push(newComp);
+                placementPreview = null;
+            } else {
+                 if(isOccupied) {
+                    // Don't place a preview if clicking on an existing component
+                    // Allow the click to fall through to other handlers
+                 } else {
+                    placementPreview = { type: activeToolType, x: snapToGrid(x), y: snapToGrid(y) };
+                 }
+            }
+             if(isOccupied && !placementPreview) {
+                // Do nothing, let it fall through
+            } else {
+                draw(); 
+                return;
+            }
+        }
+        
         const clickedComponent = components.find(c => c.isUnderMouse(x, y));
         const clickedConnector = components.flatMap(c => c.connectors).find(c => Math.hypot(c.x - x, c.y - y) < GRID_SIZE / 2);
 
-        if (activeTool === 'delete') {
+        if (activeToolType === 'delete') {
             if (clickedComponent) {
                 wires = wires.filter(w => w.start.parent.id !== clickedComponent.id && w.end.parent.id !== clickedComponent.id);
                 components = components.filter(c => c.id !== clickedComponent.id);
@@ -873,13 +932,12 @@
                     if (!w.path || w.path.length < 2) return false;
                     for (let i = 0; i < w.path.length - 1; i++) {
                         if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 5) return true;
-                    }
-                    return false;
+                    } return false;
                 });
                 if (wireToDelete) wires = wires.filter(w => w.id !== wireToDelete.id);
             }
             selectedWire = null;
-        } else if (activeTool === 'wire') {
+        } else if (activeToolType === 'wire') {
             if (clickedConnector) {
                 if (!wiringState.start) {
                     wiringState.start = clickedConnector; wiringPathPoints.push({ x: clickedConnector.x, y: clickedConnector.y });
@@ -888,44 +946,31 @@
                     wiringState.end = { x: clickedConnector.x, y: clickedConnector.y };
                     const finalPath = getPreviewPath();
                     wires.push(new Wire(wiringState.start, clickedConnector, finalPath));
-                    wiringState = { start: null, end: null }; wiringPathPoints = []; setActiveTool(null);
+                    wiringState = { start: null, end: null }; wiringPathPoints = [];
                 }
             } else if (wiringState.start) {
                 wiringState.end = {x, y};
-                const pathSoFar = getPreviewPath();
-                wiringPathPoints = pathSoFar;
+                wiringPathPoints = getPreviewPath();
                 wiringState.end = null;
             }
             selectedWire = null;
         } else {
-            if(activeTool === 'move') return;
-
             let somethingWasClicked = false;
             const wireToSelect = wires.find(w => {
                 if (!w.path || w.path.length < 2) return false;
                 for (let i = 0; i < w.path.length - 1; i++) {
                     if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 6) return true;
-                }
-                return false;
+                } return false;
             });
 
-            if (wireToSelect) {
-                selectedWire = wireToSelect;
-                somethingWasClicked = true;
-            }
-
+            if (wireToSelect) { selectedWire = wireToSelect; somethingWasClicked = true; }
             if (clickedComponent) {
                 if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
                 if (typeof clickedComponent.toggle === 'function') {
-                    clickedComponent.toggle(e.shiftKey);
-                    somethingWasClicked = true;
-                    selectedWire = null;
+                    clickedComponent.toggle(e.shiftKey); somethingWasClicked = true; selectedWire = null;
                 }
             }
-            
-            if (!somethingWasClicked) {
-                selectedWire = null;
-            }
+            if (!somethingWasClicked) { selectedWire = null; }
         }
         draw();
     });
@@ -942,11 +987,11 @@
         }
     });
     
-    bulbToolItem.addEventListener('dblclick', () => {
+    document.getElementById('bulb-tool-item').addEventListener('dblclick', () => {
         nextBulbColorIndex = (nextBulbColorIndex + 1) % bulbColors.length;
         const color = bulbColors[nextBulbColorIndex].color;
-        bulbToolItem.style.boxShadow = `0 0 10px 3px ${color}`;
-        setTimeout(() => { bulbToolItem.style.boxShadow = ''; }, 300);
+        document.getElementById('bulb-tool-item').style.boxShadow = `0 0 10px 3px ${color}`;
+        setTimeout(() => { document.getElementById('bulb-tool-item').style.boxShadow = ''; }, 300);
     });
 
     function openPoleModal(options) {
@@ -966,10 +1011,11 @@
         const comp = components.find(c => c.isUnderMouse(pos.x, pos.y));
         justDragged = false;
         
-        if (activeTool === 'move' && comp) {
+        if (activeToolType === 'move' && comp) {
+             canvas.style.cursor = 'grabbing';
              draggedComponent = comp;
              dragOffset = { x: pos.x - draggedComponent.x, y: pos.y - draggedComponent.y };
-        } else if (activeTool === null && comp) {
+        } else if (activeToolType === null && comp) {
             potentialDragComponent = comp;
             longPressStartPos = pos;
             longPressTimer = setTimeout(() => {
@@ -977,6 +1023,7 @@
                 draggedComponent = potentialDragComponent;
                 dragOffset = { x: longPressStartPos.x - draggedComponent.x, y: longPressStartPos.y - draggedComponent.y };
                 selectedWire = null;
+                canvas.style.cursor = 'grabbing';
                 draw();
                 longPressTimer = null;
             }, 500);
@@ -991,23 +1038,20 @@
         clearTimeout(longPressTimer);
         longPressTimer = null;
         
-        if (isLongPressDrag) {
-            isLongPressDrag = false;
-        }
+        if (activeToolType === 'move') canvas.style.cursor = 'grab';
+        else if (isLongPressDrag || draggedComponent) canvas.style.cursor = 'default';
+
+        if (isLongPressDrag) isLongPressDrag = false;
         draggedComponent = null;
 
         if (isPressingButton) {
             isPressingButton = false;
             components.filter(c => c.type === 'switch' && c.switchType.startsWith('pushbutton')).forEach(c => c.release());
-            draw();
         }
-
+        
+        draw();
         setTimeout(() => { justDragged = false; }, 10);
     });
-
-    wireToolBtn.addEventListener('click', () => setActiveTool('wire'));
-    deleteToolBtn.addEventListener('click', () => setActiveTool('delete'));
-    moveToolBtn.addEventListener('click', () => setActiveTool('move'));
 
     wireColorPicker.addEventListener('click', () => {
         wireColorIndex = (wireColorIndex + 1) % WIRE_DEFAULT_COLORS.length;
@@ -1020,7 +1064,6 @@
         wireThicknessPicker.textContent = defaultWireThickness === 3 ? '細' : '粗';
     });
 
-
     // --- MODAL LOGIC ---
     addNoContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NO'); draw(); } });
     addNcContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NC'); draw(); } });
@@ -1031,10 +1074,13 @@
     closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
     
     // --- KEYBOARD HANDLERS ---
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if(activeTool === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; } else if (selectedWire) { selectedWire = null; } else if (activeTool) { setActiveTool(null); } draw(); } else if (activeTool === 'wire' && e.key === 'Backspace' && wiringPathPoints.length > 1) { wiringPathPoints.pop(); draw(); } });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (placementPreview) { placementPreview = null; } else if(activeToolType === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; } else if (selectedWire) { selectedWire = null; } else if (activeToolType) { document.querySelector(`.tool-item[data-type="${activeToolType}"]`)?.classList.remove('active'); activeToolType = null; canvas.style.cursor = 'default'; } draw(); } else if (activeToolType === 'wire' && e.key === 'Backspace' && wiringPathPoints.length > 1) { wiringPathPoints.pop(); draw(); } });
 
     // --- INITIALIZATION ---
     window.addEventListener('resize', resizeCanvas);
+    document.querySelectorAll('#toolbar .tool-item').forEach(el => {
+        el.addEventListener('click', () => handleToolClick(el));
+    });
     resizeCanvas();
     wireColorPicker.style.backgroundColor = defaultWireColor;
     
