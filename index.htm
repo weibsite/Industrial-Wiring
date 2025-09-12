@@ -217,7 +217,7 @@
         wires.forEach(w => w.draw(ctx));
         components.forEach(c => c.draw(ctx));
 
-        if (activeTool === 'wire' && wiringState.start) {
+        if (activeTool === 'wire' && wiringState.start && wiringState.end) { // FIX: Added check for wiringState.end
             const previewPath = [...wiringPathPoints];
             const lastPoint = previewPath[previewPath.length - 1];
             const mousePoint = wiringState.end;
