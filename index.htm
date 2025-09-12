@@ -13,7 +13,7 @@
             user-select: none;
         }
         .tool-item {
-            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-pointer shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
+            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-grab shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
             position: relative; /* Needed for pseudo-element positioning */
             z-index: 1;
         }
@@ -53,12 +53,12 @@
     <div id="toolbar" class="w-48 bg-gray-800 p-4 flex flex-col space-y-4 shadow-lg z-10">
         <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2">工具列</h2>
         
-        <div class="tool-item" data-type="nfb"><span>⚡ 無熔絲開關</span></div>
-        <div id="bulb-tool-item" class="tool-item" data-type="bulb"><span>💡 燈泡</span></div>
-        <div class="tool-item" data-type="switch"><span>🔘 開關元件</span></div>
-        <div class="tool-item" data-type="breaker"><span>🛡️ 斷路器</span></div>
-        <div class="tool-item" data-type="contactor"><span>🧲 電磁接觸器</span></div>
-        <div class="tool-item" data-type="fuse"><span>🔥 保險絲座</span></div>
+        <div class="tool-item" draggable="true" data-type="nfb"><span>⚡ 無熔絲開關</span></div>
+        <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span>💡 燈泡</span></div>
+        <div class="tool-item" draggable="true" data-type="switch"><span>🔘 開關元件</span></div>
+        <div class="tool-item" draggable="true" data-type="breaker"><span>🛡️ 斷路器</span></div>
+        <div class="tool-item" draggable="true" data-type="contactor"><span>🧲 電磁接觸器</span></div>
+        <div class="tool-item" draggable="true" data-type="fuse"><span>🔥 保險絲座</span></div>
 
         <div class="pt-4 mt-4 border-t border-gray-600 space-y-4">
             <button id="move-tool" class="tool-item" data-type="move"><span>🪛 移動</span></button>
@@ -75,7 +75,7 @@
         </div>
 
         <div class="mt-auto text-center text-xs text-gray-400">
-            <p>1. 點選工具後在畫布施工</p>
+            <p>1. 點選或拖曳工具至畫布</p>
             <p>2. 久按元件可直接拖曳</p>
             <p>3. 再次點擊工具可取消</p>
             <p class="mt-2">點擊電線可編輯/刪除</p>
@@ -154,7 +154,10 @@
     
     // --- State Management ---
     let activeToolType = null;
-    let placementPreview = null;
+    let draggedToolType = null;
+    let draggedGhost = null;
+    let placementPreview = null; // Also used for dragging previews
+    let isDraggingPreview = false;
     let wiringState = { start: null, end: null };
     let wiringPathPoints = [];
     let selectedContactor = null;
@@ -189,7 +192,7 @@
         { color: '#48bb78', label: 'GL' }, { color: '#ed8936', label: 'OL' },
     ];
     
-    // --- UTILITY FUNCTIONS ---
+    // --- UTILITY & HELPER FUNCTIONS ---
     const snapToGrid = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
     const getCanvasMousePos = (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -206,6 +209,32 @@
         else if (param > 1) { xx = x2; yy = y2; } 
         else { xx = x1 + param * C; yy = y1 + param * D; }
         return Math.sqrt(Math.pow(x - xx, 2) + Math.pow(y - yy, 2));
+    }
+
+    function checkCollision(rect1, ignoreId = -1) {
+        for (const component of components) {
+            if (component.id === ignoreId) continue;
+            const rect2 = { x: component.x, y: component.y, width: component.width, height: component.height };
+            if (rect1.x < rect2.x + rect2.width &&
+                rect1.x + rect1.width > rect2.x &&
+                rect1.y < rect2.y + rect2.height &&
+                rect1.y + rect1.height > rect2.y) {
+                return true; // Collision detected
+            }
+        }
+        return false; // No collision
+    }
+
+    function createTempComponent(type, x, y){
+        switch (type) {
+            case 'nfb': return new NFB(x, y);
+            case 'bulb': return new Bulb(x, y, nextBulbColorIndex);
+            case 'switch': return new Switch(x, y);
+            case 'breaker': return new CircuitBreaker(x, y);
+            case 'contactor': return new MagneticContactor(x, y);
+            case 'fuse': return new FuseHolder(x, y);
+            default: return null;
+        }
     }
 
     // --- CANVAS RESIZING & DRAWING ---
@@ -238,14 +267,12 @@
         const uiX = centerX + 15; const uiY = centerY - 10;
         const swatchSize = 20; const buttonWidth = 30; const buttonHeight = 20; const padding = 5;
 
-        // Color swatch
         ctx.fillStyle = selectedWire.color;
         ctx.fillRect(uiX, uiY, swatchSize, swatchSize);
         ctx.strokeStyle = 'white'; ctx.lineWidth = 1;
         ctx.strokeRect(uiX, uiY, swatchSize, swatchSize);
         wireEditorUI.colorRect = { x: uiX, y: uiY, width: swatchSize, height: swatchSize };
 
-        // Thickness button
         const thickButtonX = uiX + swatchSize + padding;
         ctx.fillStyle = '#4a5568';
         ctx.fillRect(thickButtonX, uiY, buttonWidth, buttonHeight);
@@ -256,7 +283,6 @@
         ctx.fillText(thickText, thickButtonX + buttonWidth / 2, uiY + buttonHeight / 2);
         wireEditorUI.thickRect = { x: thickButtonX, y: uiY, width: buttonWidth, height: buttonHeight };
 
-        // Delete button
         const deleteButtonX = thickButtonX + buttonWidth + padding;
         ctx.fillStyle = '#e53e3e';
         ctx.fillRect(deleteButtonX, uiY, buttonWidth, buttonHeight);
@@ -287,20 +313,17 @@
 
         components.forEach(c => c.draw(ctx));
 
-        if (placementPreview) {
+        const previewComponent = placementPreview || draggedGhost;
+        if (previewComponent) {
             ctx.save();
             ctx.globalAlpha = 0.7;
-            let tempComp;
-            const { x, y, type } = placementPreview;
-            switch (type) {
-                case 'nfb': tempComp = new NFB(x, y); break;
-                case 'bulb': tempComp = new Bulb(x, y, nextBulbColorIndex); break;
-                case 'switch': tempComp = new Switch(x, y); break;
-                case 'breaker': tempComp = new CircuitBreaker(x, y); break;
-                case 'contactor': tempComp = new MagneticContactor(x, y); break;
-                case 'fuse': tempComp = new FuseHolder(x, y); break;
-            }
+            const tempComp = createTempComponent(previewComponent.type, previewComponent.x, previewComponent.y);
             if (tempComp) {
+                if (previewComponent.isColliding) {
+                    ctx.strokeStyle = '#ef4444'; // Red for collision
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(tempComp.x, tempComp.y, tempComp.width, tempComp.height);
+                }
                 tempComp.draw(ctx);
             }
             ctx.restore();
@@ -329,21 +352,6 @@
         }
 
         drawWireEditor(ctx);
-    }
-    
-    function getPreviewPath() {
-        const path = [...wiringPathPoints];
-        if (!wiringState.end) return path;
-        const lastPoint = path[path.length - 1];
-        const mousePoint = wiringState.end;
-        
-        const elbowPoint = { x: snapToGrid(mousePoint.x), y: lastPoint.y };
-        const finalPoint = { x: snapToGrid(mousePoint.x), y: snapToGrid(mousePoint.y) };
-        
-        if(lastPoint.x !== elbowPoint.x) path.push(elbowPoint);
-        if(elbowPoint.y !== finalPoint.y) path.push(finalPoint);
-
-        return path;
     }
     
     // --- COMPONENT CLASSES ---
@@ -844,133 +852,102 @@
 
         if (longPressTimer) {
             const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
-            if (dist > 5) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
-            }
+            if (dist > 5) { clearTimeout(longPressTimer); longPressTimer = null; }
         }
 
-        if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
+        if (isDraggingPreview && placementPreview) {
+            placementPreview.x = snapToGrid(pos.x - dragOffset.x);
+            placementPreview.y = snapToGrid(pos.y - dragOffset.y);
+            justDragged = true;
+        } else if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
             const newX = snapToGrid(pos.x - dragOffset.x); 
             const newY = snapToGrid(pos.y - dragOffset.y); 
             draggedComponent.updatePosition(newX, newY);
             justDragged = true;
-        } 
-        else if (activeToolType === 'wire' && wiringState.start) { 
+        } else if (activeToolType === 'wire' && wiringState.start) { 
             wiringState.end = pos; 
+        } else if (draggedGhost) {
+            draggedGhost.x = pos.x - dragOffset.x;
+            draggedGhost.y = pos.y - dragOffset.y;
+            const tempRect = { x: snapToGrid(draggedGhost.x), y: snapToGrid(draggedGhost.y), width: draggedGhost.width, height: draggedGhost.height };
+            draggedGhost.isColliding = checkCollision(tempRect);
         }
         draw();
     });
 
     canvas.addEventListener('click', (e) => {
         if (justDragged) return;
-
         const { x, y } = getCanvasMousePos(e);
 
         if (selectedWire && wireEditorUI.colorRect) {
             const cr = wireEditorUI.colorRect; const tr = wireEditorUI.thickRect; const dr = wireEditorUI.deleteRect;
-            if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) {
-                selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return;
-            }
-            if (x >= tr.x && x <= tr.x + tr.width && y >= tr.y && y <= tr.y + tr.height) {
-                selectedWire.thickness = WIRE_THICKNESS[selectedWire.thickness] || 3; draw(); return;
-            }
-            if (x >= dr.x && x <= dr.x + dr.width && y >= dr.y && y <= dr.y + dr.height) {
-                wires = wires.filter(w => w.id !== selectedWire.id); selectedWire = null; draw(); return;
-            }
+            if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) { selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return; }
+            if (x >= tr.x && x <= tr.x + tr.width && y >= tr.y && y <= tr.y + tr.height) { selectedWire.thickness = WIRE_THICKNESS[selectedWire.thickness] || 3; draw(); return; }
+            if (x >= dr.x && x <= dr.x + dr.width && y >= dr.y && y <= dr.y + dr.height) { wires = wires.filter(w => w.id !== selectedWire.id); selectedWire = null; draw(); return; }
         }
 
         const isComponentTool = ['nfb', 'bulb', 'switch', 'breaker', 'contactor', 'fuse'].includes(activeToolType);
         if (isComponentTool) {
-            const isOccupied = components.some(c => c.isUnderMouse(x, y));
+            const clickedOnComponent = components.some(c => c.isUnderMouse(x, y));
+            const sX = snapToGrid(x); const sY = snapToGrid(y);
 
             if (placementPreview) {
-                // Check if the placement spot is occupied by a DIFFERENT component
-                const isOccupiedByOther = components.some(c => c.isUnderMouse(placementPreview.x + 1, placementPreview.y + 1));
-                 if(isOccupiedByOther){
-                     placementPreview = null;
-                     draw();
-                     return;
-                 }
-                
-                let newComp; const compX = placementPreview.x; const compY = placementPreview.y;
-                switch (placementPreview.type) {
-                    case 'nfb': newComp = new NFB(compX, compY); break;
-                    case 'bulb': newComp = new Bulb(compX, compY, nextBulbColorIndex); break;
-                    case 'switch': newComp = new Switch(compX, compY); break;
-                    case 'breaker': newComp = new CircuitBreaker(compX, compY); break;
-                    case 'contactor': newComp = new MagneticContactor(compX, compY); break;
-                    case 'fuse': newComp = new FuseHolder(compX, compY); break;
+                const mouseOnPreview = sX === placementPreview.x && sY === placementPreview.y;
+                if (mouseOnPreview) {
+                    const tempComp = createTempComponent(placementPreview.type, sX, sY);
+                    const rect = { x: sX, y: sY, width: tempComp.width, height: tempComp.height };
+                    if (!checkCollision(rect)) {
+                        components.push(tempComp);
+                    }
+                    placementPreview = null;
+                } else {
+                    placementPreview = null;
                 }
-                if (newComp) components.push(newComp);
-                placementPreview = null;
-            } else {
-                 if(isOccupied) {
-                    // Don't place a preview if clicking on an existing component
-                    // Allow the click to fall through to other handlers
-                 } else {
-                    placementPreview = { type: activeToolType, x: snapToGrid(x), y: snapToGrid(y) };
-                 }
+            } else if (!clickedOnComponent) {
+                const tempComp = createTempComponent(activeToolType, sX, sY);
+                placementPreview = { type: activeToolType, x: tempComp.x, y: tempComp.y };
             }
-             if(isOccupied && !placementPreview) {
-                // Do nothing, let it fall through
-            } else {
-                draw(); 
-                return;
-            }
-        }
-        
-        const clickedComponent = components.find(c => c.isUnderMouse(x, y));
-        const clickedConnector = components.flatMap(c => c.connectors).find(c => Math.hypot(c.x - x, c.y - y) < GRID_SIZE / 2);
-
-        if (activeToolType === 'delete') {
-            if (clickedComponent) {
-                wires = wires.filter(w => w.start.parent.id !== clickedComponent.id && w.end.parent.id !== clickedComponent.id);
-                components = components.filter(c => c.id !== clickedComponent.id);
-            } else {
-                 const wireToDelete = wires.find(w => {
-                    if (!w.path || w.path.length < 2) return false;
-                    for (let i = 0; i < w.path.length - 1; i++) {
-                        if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 5) return true;
-                    } return false;
-                });
-                if (wireToDelete) wires = wires.filter(w => w.id !== wireToDelete.id);
-            }
-            selectedWire = null;
-        } else if (activeToolType === 'wire') {
-            if (clickedConnector) {
-                if (!wiringState.start) {
-                    wiringState.start = clickedConnector; wiringPathPoints.push({ x: clickedConnector.x, y: clickedConnector.y });
-                } 
-                else if (wiringState.start.id !== clickedConnector.id) {
-                    wiringState.end = { x: clickedConnector.x, y: clickedConnector.y };
-                    const finalPath = getPreviewPath();
-                    wires.push(new Wire(wiringState.start, clickedConnector, finalPath));
-                    wiringState = { start: null, end: null }; wiringPathPoints = [];
-                }
-            } else if (wiringState.start) {
-                wiringState.end = {x, y};
-                wiringPathPoints = getPreviewPath();
-                wiringState.end = null;
-            }
-            selectedWire = null;
         } else {
-            let somethingWasClicked = false;
-            const wireToSelect = wires.find(w => {
-                if (!w.path || w.path.length < 2) return false;
-                for (let i = 0; i < w.path.length - 1; i++) {
-                    if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 6) return true;
-                } return false;
-            });
+            const clickedComponent = components.find(c => c.isUnderMouse(x, y));
+            const clickedConnector = components.flatMap(c => c.connectors).find(c => Math.hypot(c.x - x, c.y - y) < GRID_SIZE / 2);
 
-            if (wireToSelect) { selectedWire = wireToSelect; somethingWasClicked = true; }
-            if (clickedComponent) {
-                if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
-                if (typeof clickedComponent.toggle === 'function') {
-                    clickedComponent.toggle(e.shiftKey); somethingWasClicked = true; selectedWire = null;
+            if (activeToolType === 'delete') {
+                if (clickedComponent) {
+                    wires = wires.filter(w => w.start.parent.id !== clickedComponent.id && w.end.parent.id !== clickedComponent.id);
+                    components = components.filter(c => c.id !== clickedComponent.id);
+                } else {
+                    const wireToDelete = wires.find(w => { if (!w.path || w.path.length < 2) return false; for (let i = 0; i < w.path.length - 1; i++) { if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 5) return true; } return false; });
+                    if (wireToDelete) wires = wires.filter(w => w.id !== wireToDelete.id);
                 }
+                selectedWire = null;
+            } else if (activeToolType === 'wire') {
+                if (clickedConnector) {
+                    if (!wiringState.start) {
+                        wiringState.start = clickedConnector; wiringPathPoints.push({ x: clickedConnector.x, y: clickedConnector.y });
+                    } else if (wiringState.start.id !== clickedConnector.id) {
+                        wiringState.end = { x: clickedConnector.x, y: clickedConnector.y };
+                        wires.push(new Wire(wiringState.start, clickedConnector, getPreviewPath()));
+                        wiringState = { start: null, end: null }; wiringPathPoints = [];
+                    }
+                } else if (wiringState.start) {
+                    wiringState.end = { x, y };
+                    wiringPathPoints = getPreviewPath();
+                    wiringState.end = null;
+                }
+                selectedWire = null;
+            } else {
+                let somethingWasClicked = false;
+                const wireToSelect = wires.find(w => { if (!w.path || w.path.length < 2) return false; for (let i = 0; i < w.path.length - 1; i++) { if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 6) return true; } return false; });
+
+                if (wireToSelect) { selectedWire = wireToSelect; somethingWasClicked = true; }
+                if (clickedComponent) {
+                    if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
+                    if (typeof clickedComponent.toggle === 'function') {
+                        clickedComponent.toggle(e.shiftKey); somethingWasClicked = true; selectedWire = null;
+                    }
+                }
+                if (!somethingWasClicked) { selectedWire = null; }
             }
-            if (!somethingWasClicked) { selectedWire = null; }
         }
         draw();
     });
@@ -985,13 +962,6 @@
             else if (clickedComponent.type === 'switch') { switchModal.classList.remove('hidden'); }
             else if (clickedComponent.type === 'bulb') { clickedComponent.cycleColor(); draw(); }
         }
-    });
-    
-    document.getElementById('bulb-tool-item').addEventListener('dblclick', () => {
-        nextBulbColorIndex = (nextBulbColorIndex + 1) % bulbColors.length;
-        const color = bulbColors[nextBulbColorIndex].color;
-        document.getElementById('bulb-tool-item').style.boxShadow = `0 0 10px 3px ${color}`;
-        setTimeout(() => { document.getElementById('bulb-tool-item').style.boxShadow = ''; }, 300);
     });
 
     function openPoleModal(options) {
@@ -1008,45 +978,63 @@
 
     canvas.addEventListener('mousedown', (e) => {
         const pos = getCanvasMousePos(e);
-        const comp = components.find(c => c.isUnderMouse(pos.x, pos.y));
         justDragged = false;
         
+        const comp = components.find(c => c.isUnderMouse(pos.x, pos.y));
+        const mouseOnPreview = placementPreview && (pos.x >= placementPreview.x && pos.x <= placementPreview.x + createTempComponent(placementPreview.type, 0,0).width && pos.y >= placementPreview.y && pos.y <= placementPreview.y + createTempComponent(placementPreview.type, 0,0).height);
+
         if (activeToolType === 'move' && comp) {
              canvas.style.cursor = 'grabbing';
              draggedComponent = comp;
+             draggedComponent.originalX = comp.x; draggedComponent.originalY = comp.y;
              dragOffset = { x: pos.x - draggedComponent.x, y: pos.y - draggedComponent.y };
-        } else if (activeToolType === null && comp) {
-            potentialDragComponent = comp;
-            longPressStartPos = pos;
-            longPressTimer = setTimeout(() => {
-                isLongPressDrag = true;
-                draggedComponent = potentialDragComponent;
-                dragOffset = { x: longPressStartPos.x - draggedComponent.x, y: longPressStartPos.y - draggedComponent.y };
-                selectedWire = null;
-                canvas.style.cursor = 'grabbing';
-                draw();
-                longPressTimer = null;
-            }, 500);
+        } else if (activeToolType === null) {
+            if (mouseOnPreview) {
+                longPressTimer = setTimeout(() => {
+                    isDraggingPreview = true;
+                    dragOffset = { x: pos.x - placementPreview.x, y: pos.y - placementPreview.y };
+                    longPressTimer = null;
+                }, 500);
+            } else if (comp) {
+                potentialDragComponent = comp;
+                longPressStartPos = pos;
+                longPressTimer = setTimeout(() => {
+                    isLongPressDrag = true;
+                    draggedComponent = potentialDragComponent;
+                    draggedComponent.originalX = comp.x; draggedComponent.originalY = comp.y;
+                    dragOffset = { x: longPressStartPos.x - draggedComponent.x, y: longPressStartPos.y - draggedComponent.y };
+                    selectedWire = null;
+                    canvas.style.cursor = 'grabbing';
+                    draw();
+                    longPressTimer = null;
+                }, 500);
 
-            if (comp.type === 'switch' && comp.switchType.startsWith('pushbutton')) {
-                 isPressingButton = true; comp.press(); draw();
+                if (comp.type === 'switch' && comp.switchType.startsWith('pushbutton')) {
+                    isPressingButton = true; comp.press(); draw();
+                }
             }
         }
     });
 
     canvas.addEventListener('mouseup', (e) => {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
-        
-        if (activeToolType === 'move') canvas.style.cursor = 'grab';
-        else if (isLongPressDrag || draggedComponent) canvas.style.cursor = 'default';
+        clearTimeout(longPressTimer); longPressTimer = null;
+        isDraggingPreview = false;
+
+        if (activeToolType === 'move' || isLongPressDrag) canvas.style.cursor = (activeToolType === 'move' ? 'grab' : 'default');
+
+        if (draggedComponent) {
+            const rect = { x: draggedComponent.x, y: draggedComponent.y, width: draggedComponent.width, height: draggedComponent.height };
+            if (checkCollision(rect, draggedComponent.id)) {
+                draggedComponent.updatePosition(draggedComponent.originalX, draggedComponent.originalY);
+            }
+        }
 
         if (isLongPressDrag) isLongPressDrag = false;
         draggedComponent = null;
 
         if (isPressingButton) {
             isPressingButton = false;
-            components.filter(c => c.type === 'switch' && c.switchType.startsWith('pushbutton')).forEach(c => c.release());
+            components.forEach(c => c.release && c.release());
         }
         
         draw();
@@ -1064,6 +1052,45 @@
         wireThicknessPicker.textContent = defaultWireThickness === 3 ? '細' : '粗';
     });
 
+    // --- Toolbar Drag & Drop ---
+    toolbar.addEventListener('dragstart', (e) => {
+        if(e.target.classList.contains('tool-item')){
+             draggedToolType = e.target.dataset.type;
+             const tempComp = createTempComponent(draggedToolType, 0, 0);
+             dragOffset.x = tempComp.width / 2;
+             dragOffset.y = tempComp.height / 2;
+        }
+    });
+
+    canvas.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if(!draggedToolType) return;
+        const pos = getCanvasMousePos(e);
+        const sX = snapToGrid(pos.x - dragOffset.x);
+        const sY = snapToGrid(pos.y - dragOffset.y);
+        const tempComp = createTempComponent(draggedToolType, sX, sY);
+
+        draggedGhost = {
+            type: draggedToolType,
+            x: sX, y: sY,
+            width: tempComp.width, height: tempComp.height,
+            isColliding: checkCollision({ x: sX, y: sY, width: tempComp.width, height: tempComp.height })
+        };
+        draw();
+    });
+    
+    canvas.addEventListener('dragleave', (e) => { draggedGhost = null; draw(); });
+    canvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if(draggedGhost && !draggedGhost.isColliding) {
+            const newComp = createTempComponent(draggedGhost.type, draggedGhost.x, draggedGhost.y);
+            if(newComp) components.push(newComp);
+        }
+        draggedToolType = null;
+        draggedGhost = null;
+        draw();
+    });
+
     // --- MODAL LOGIC ---
     addNoContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NO'); draw(); } });
     addNcContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NC'); draw(); } });
@@ -1078,9 +1105,18 @@
 
     // --- INITIALIZATION ---
     window.addEventListener('resize', resizeCanvas);
-    document.querySelectorAll('#toolbar .tool-item').forEach(el => {
-        el.addEventListener('click', () => handleToolClick(el));
+    document.querySelectorAll('#toolbar .tool-item[data-type]').forEach(el => {
+        if(el.draggable){
+            // It's a component for drag/drop
+        } else {
+            el.addEventListener('click', () => handleToolClick(el));
+        }
     });
+    // Manually add listeners for non-draggable buttons to avoid conflicts
+    document.getElementById('move-tool').addEventListener('click', (e) => handleToolClick(e.currentTarget));
+    document.getElementById('wire-tool').addEventListener('click', (e) => handleToolClick(e.currentTarget));
+    document.getElementById('delete-tool').addEventListener('click', (e) => handleToolClick(e.currentTarget));
+
     resizeCanvas();
     wireColorPicker.style.backgroundColor = defaultWireColor;
     
