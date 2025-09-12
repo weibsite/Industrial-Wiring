@@ -45,7 +45,15 @@
 
         <div class="pt-4 mt-4 border-t border-gray-600 space-y-4">
             <button id="move-tool" class="tool-item cursor-pointer">🪛 移動</button>
-            <button id="wire-tool" class="tool-item cursor-pointer">〰️ 電線</button>
+            
+            <div>
+                 <button id="wire-tool" class="tool-item cursor-pointer">〰️ 電線</button>
+                 <div class="flex items-center justify-center space-x-2 mt-2">
+                    <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
+                    <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
+                 </div>
+            </div>
+
             <button id="delete-tool" class="tool-item cursor-pointer">🗑️ 刪除</button>
         </div>
 
@@ -111,6 +119,8 @@
     const deleteToolBtn = document.getElementById('delete-tool');
     const moveToolBtn = document.getElementById('move-tool');
     const canvasContainer = document.getElementById('canvas-container');
+    const wireColorPicker = document.getElementById('wire-color-picker');
+    const wireThicknessPicker = document.getElementById('wire-thickness-picker');
 
     const contactorModal = document.getElementById('contactor-modal');
     const addNoContactBtn = document.getElementById('add-no-contact');
@@ -139,7 +149,13 @@
     let isPressingButton = false;
     let dragOffset = { x: 0, y: 0 };
     
-    // Wire editing
+    // Default Wire Settings
+    let defaultWireColor = '#f6e05e';
+    let defaultWireThickness = 3;
+    const WIRE_DEFAULT_COLORS = ['#f6e05e', '#e53e3e', '#4299e1', '#48bb78', '#1a202c'];
+    let wireColorIndex = 0;
+
+    // Inline Wire editing
     let selectedWire = null;
     let wireEditorUI = { colorRect: null, thickRect: null };
     const WIRE_COLORS = {
@@ -256,7 +272,7 @@
         if (activeTool === 'wire' && wiringState.start && wiringState.end) {
             const previewPath = getPreviewPath();
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = defaultWireThickness;
             ctx.beginPath();
             if(previewPath.length > 0) {
                 ctx.moveTo(previewPath[0].x, previewPath[0].y);
@@ -644,7 +660,15 @@
     }
 
     class Wire {
-        constructor(startConnector, endConnector, path) { this.id = generateId(); this.start = startConnector; this.end = endConnector; this.potential = 0; this.color = '#f6e05e'; this.thickness = 3; this.path = path; }
+        constructor(startConnector, endConnector, path) { 
+            this.id = generateId(); 
+            this.start = startConnector; 
+            this.end = endConnector; 
+            this.potential = 0; 
+            this.color = defaultWireColor; 
+            this.thickness = defaultWireThickness; 
+            this.path = path; 
+        }
         calculatePath() {
             this.path[0].x = this.start.x; this.path[0].y = this.start.y;
             this.path[this.path.length - 1].x = this.end.x; this.path[this.path.length - 1].y = this.end.y;
@@ -919,6 +943,18 @@
     deleteToolBtn.addEventListener('click', () => setActiveTool('delete'));
     moveToolBtn.addEventListener('click', () => setActiveTool('move'));
 
+    wireColorPicker.addEventListener('click', () => {
+        wireColorIndex = (wireColorIndex + 1) % WIRE_DEFAULT_COLORS.length;
+        defaultWireColor = WIRE_DEFAULT_COLORS[wireColorIndex];
+        wireColorPicker.style.backgroundColor = defaultWireColor;
+    });
+
+    wireThicknessPicker.addEventListener('click', () => {
+        defaultWireThickness = defaultWireThickness === 3 ? 6 : 3;
+        wireThicknessPicker.textContent = defaultWireThickness === 3 ? '細' : '粗';
+    });
+
+
     // --- MODAL LOGIC ---
     addNoContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NO'); draw(); } });
     addNcContactBtn.addEventListener('click', () => { if(selectedContactor) { selectedContactor.addAuxContact('NC'); draw(); } });
@@ -934,7 +970,9 @@
     // --- INITIALIZATION ---
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    wireColorPicker.style.backgroundColor = defaultWireColor;
     
 </script>
 </body>
 </html>
+
