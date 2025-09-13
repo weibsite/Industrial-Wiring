@@ -48,6 +48,14 @@
         }
 
         .mobile-text { display: none; }
+        
+        .tool-item > .desktop-text {
+            @apply flex items-center justify-start text-left;
+        }
+        .tool-item > .desktop-text > .icon {
+            @apply w-8 text-center;
+        }
+
 
         @media (max-width: 768px) {
             .desktop-text { display: none; }
@@ -81,26 +89,26 @@
         <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2">工具列</h2>
         
         <div class="tool-group">
-            <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text">⚡ 無熔絲開關</span><span class="mobile-text">開關</span></div>
-            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text">💡 燈泡</span><span class="mobile-text">燈泡</span></div>
-            <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text">🔘 開關元件</span><span class="mobile-text">元件</span></div>
-            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text">🛡️ 斷路器</span><span class="mobile-text">斷路器</span></div>
-            <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text">🧲 電磁接觸器</span><span class="mobile-text">MC</span></div>
-            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text">🔥 保險絲座</span><span class="mobile-text">保險絲</span></div>
+            <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text"><span class="icon">⚡</span><span>無熔絲開關</span></span><span class="mobile-text">開關</span></div>
+            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span>燈泡</span></span><span class="mobile-text">燈泡</span></div>
+            <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text"><span class="icon">🔘</span><span>開關元件</span></span><span class="mobile-text">元件</span></div>
+            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text"><span class="icon">🛡️</span><span>斷路器</span></span><span class="mobile-text">斷路器</span></div>
+            <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text"><span class="icon">🧲</span><span>電磁接觸器</span></span><span class="mobile-text">MC</span></div>
+            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
         </div>
 
         <div class="tool-group pt-4 mt-4 md:border-t border-gray-600 md:space-y-4">
-            <button id="move-tool" class="tool-item" data-type="move"><span>🪛 移動</span></button>
+            <button id="move-tool" class="tool-item" data-type="move"><span class="desktop-text"><span class="icon">🪛</span><span>移動</span></span><span class="mobile-text">移動</span></button>
             
             <div>
-                 <button id="wire-tool" class="tool-item" data-type="wire"><span>〰️ 電線</span></button>
+                 <button id="wire-tool" class="tool-item" data-type="wire"><span class="desktop-text"><span class="icon">〰️</span><span>電線</span></span><span class="mobile-text">電線</span></button>
                  <div class="flex items-center justify-center space-x-2 mt-2">
                     <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
                     <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
                  </div>
             </div>
 
-            <button id="delete-tool" class="tool-item" data-type="delete"><span>🗑️ 刪除</span></button>
+            <button id="delete-tool" class="tool-item" data-type="delete"><span class="desktop-text"><span class="icon">🗑️</span><span>刪除</span></span><span class="mobile-text">刪除</span></button>
         </div>
 
         <div class="instructions mt-auto text-center text-xs text-gray-400">
@@ -199,7 +207,6 @@
     let components = [];
     let wires = [];
     let nextId = 0;
-    let contactorCounter = 1;
     
     // --- State Management ---
     let activeToolType = null;
@@ -225,6 +232,10 @@
     let isPanning = false;
     let panStart = { x: 0, y: 0 };
     let pinchState = { active: false, initialDist: 0 };
+    
+    // Double tap state for touch
+    let lastTap = 0;
+    let lastTapPos = null;
 
 
     // --- Wire Settings ---
@@ -753,7 +764,17 @@
     class MagneticContactor extends Component {
         constructor(x, y) {
             super(x, y, 'contactor');
-            this.name = 'MC' + contactorCounter++;
+            const existingContactors = components.filter(c => c.type === 'contactor');
+            let maxNum = 0;
+            existingContactors.forEach(mc => {
+                if (mc.name && mc.name.startsWith('MC')) {
+                    const num = parseInt(mc.name.substring(2));
+                    if (!isNaN(num) && num > maxNum) {
+                        maxNum = num;
+                    }
+                }
+            });
+            this.name = 'MC' + (maxNum + 1);
             this.coilEnergized = false;
             this.hasLeftAux = false;
             this._updateDimensions();
@@ -1259,7 +1280,12 @@
     });
 
     canvas.addEventListener('dblclick', (e) => {
-        const { x, y } = getCanvasMousePos(e); const clickedComponent = components.find(c => c.isUnderMouse(x, y));
+        const { x, y } = getCanvasMousePos(e); 
+        handleCanvasDoubleClick(x,y);
+    });
+
+    function handleCanvasDoubleClick(x,y) {
+        const clickedComponent = components.find(c => c.isUnderMouse(x, y));
         if (clickedComponent) {
             selectedComponentForEdit = clickedComponent;
             if (clickedComponent.type === 'nfb') { poleModalTitle.textContent = `編輯 NFB 極性`; openPoleModal(['1P', '2P', '3P', '4P']); }
@@ -1282,7 +1308,7 @@
                 contactorEditModal.classList.remove('hidden');
             }
         }
-    });
+    }
 
     function openPoleModal(options) {
         poleOptionsContainer.innerHTML = '';
@@ -1526,7 +1552,6 @@
                 thickness: w.thickness
             })),
             nextId: nextId,
-            contactorCounter: contactorCounter
         };
 
         const dataStr = JSON.stringify(layout, null, 2);
@@ -1600,7 +1625,19 @@
         });
 
         nextId = layout.nextId || 0;
-        contactorCounter = layout.contactorCounter || 1;
+        
+        // Recalculate contactor counter after loading
+        let maxNum = 0;
+        components.filter(c => c.type === 'contactor').forEach(mc => {
+             if (mc.name && mc.name.startsWith('MC')) {
+                const num = parseInt(mc.name.substring(2));
+                if (!isNaN(num) && num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        });
+        contactorCounter = maxNum + 1;
+        
         draw();
     }
 
@@ -1725,9 +1762,22 @@
         e.preventDefault();
         
         if (!isLongPressDrag && !justDragged && e.changedTouches.length === 1 && !pinchState.active) {
-             const touch = e.changedTouches[0];
-             const { x, y } = getCanvasMousePos(touch);
-             handleCanvasInteraction(x, y);
+            const touch = e.changedTouches[0];
+            const { x, y } = getCanvasMousePos(touch);
+            
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            const dist = lastTapPos ? Math.hypot(x - lastTapPos.x, y - lastTapPos.y) : Infinity;
+
+            if (tapLength < 300 && tapLength > 0 && dist < 20) {
+                 handleCanvasDoubleClick(x, y);
+                 lastTap = 0; // Reset tap
+                 lastTapPos = null;
+            } else {
+                 handleCanvasInteraction(x, y);
+                 lastTap = currentTime;
+                 lastTapPos = {x, y};
+            }
         }
 
         clearTimeout(longPressTimer);
