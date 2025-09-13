@@ -1,40 +1,4 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>電路配線模擬器</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body {
-            font-family: 'Inter', '微軟正黑體', sans-serif;
-            -webkit-user-select: none;
-            -ms-user-select: none;
-            user-select: none;
-            touch-action: none; /* Disable default touch actions like pinch-zoom on the page */
-        }
-        .tool-item {
-            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-grab shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
-            position: relative; /* Needed for pseudo-element positioning */
-            z-index: 1;
-        }
-        /* Ensure text and icon are on top */
-        .tool-item > * {
-            position: relative;
-            z-index: 10;
-        }
-        .tool-item.active {
-             border-color: #ef4444; /* red-500 */
-        }
-        .tool-item.active::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-color: #ef4444; /* red-500 */
-            opacity: 0.5;
-            border-radius: 0.5rem; /* rounded-lg */
-            z-index: 5;
-        }
+https://g.co/gemini/share/2de7f4b2ab08        }
 
         canvas {
             background-color: #2d3748; /* bg-gray-800 */
