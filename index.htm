@@ -11,6 +11,7 @@
             -webkit-user-select: none;
             -ms-user-select: none;
             user-select: none;
+            touch-action: none; /* Disable default touch actions like pinch-zoom on the page */
         }
         .tool-item {
             @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-grab shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
@@ -43,24 +44,52 @@
             @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20;
         }
         .modal-content {
-            @apply bg-gray-700 p-6 rounded-lg shadow-xl;
+            @apply bg-gray-700 p-6 rounded-lg shadow-xl text-white;
+        }
+
+        .mobile-text { display: none; }
+
+        @media (max-width: 768px) {
+            .desktop-text { display: none; }
+            .mobile-text { display: inline; }
+            #toolbar {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                padding: 0.5rem;
+                gap: 0.5rem;
+                white-space: nowrap;
+            }
+            .tool-group {
+                display: flex;
+                gap: 0.5rem;
+                align-items: center;
+            }
+             .tool-item {
+                flex-shrink: 0;
+                width: auto;
+                padding: 0.5rem 1rem;
+            }
+            #toolbar h2 { display: none; }
+            .instructions { display: none; }
         }
     </style>
 </head>
-<body class="bg-gray-900 text-white flex h-screen overflow-hidden">
+<body class="bg-gray-900 text-white flex md:flex-row flex-col-reverse h-screen overflow-hidden">
 
     <!-- Toolbar -->
-    <div id="toolbar" class="w-48 bg-gray-800 p-4 flex flex-col space-y-4 shadow-lg z-10">
+    <div id="toolbar" class="w-full md:w-48 md:h-full bg-gray-800 p-2 md:p-4 flex flex-row md:flex-col md:space-y-4 shadow-lg z-10 overflow-x-auto md:overflow-y-auto">
         <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2">工具列</h2>
         
-        <div class="tool-item" draggable="true" data-type="nfb"><span>⚡ 無熔絲開關</span></div>
-        <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span>💡 燈泡</span></div>
-        <div class="tool-item" draggable="true" data-type="switch"><span>🔘 開關元件</span></div>
-        <div class="tool-item" draggable="true" data-type="breaker"><span>🛡️ 斷路器</span></div>
-        <div class="tool-item" draggable="true" data-type="contactor"><span>🧲 電磁接觸器</span></div>
-        <div class="tool-item" draggable="true" data-type="fuse"><span>🔥 保險絲座</span></div>
+        <div class="tool-group">
+            <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text">⚡ 無熔絲開關</span><span class="mobile-text">開關</span></div>
+            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text">💡 燈泡</span><span class="mobile-text">燈泡</span></div>
+            <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text">🔘 開關元件</span><span class="mobile-text">元件</span></div>
+            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text">🛡️ 斷路器</span><span class="mobile-text">斷路器</span></div>
+            <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text">🧲 電磁接觸器</span><span class="mobile-text">MC</span></div>
+            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text">🔥 保險絲座</span><span class="mobile-text">保險絲</span></div>
+        </div>
 
-        <div class="pt-4 mt-4 border-t border-gray-600 space-y-4">
+        <div class="tool-group pt-4 mt-4 md:border-t border-gray-600 md:space-y-4">
             <button id="move-tool" class="tool-item" data-type="move"><span>🪛 移動</span></button>
             
             <div>
@@ -74,7 +103,7 @@
             <button id="delete-tool" class="tool-item" data-type="delete"><span>🗑️ 刪除</span></button>
         </div>
 
-        <div class="mt-auto text-center text-xs text-gray-400">
+        <div class="instructions mt-auto text-center text-xs text-gray-400">
             <p>1. 點選或拖曳工具至畫布</p>
             <p>2. 久按元件可直接拖曳</p>
             <p>3. 再次點擊工具可取消</p>
@@ -103,6 +132,10 @@
     <div id="contactor-edit-modal" class="modal-bg hidden">
         <div class="modal-content w-72">
             <h3 class="text-lg font-bold mb-4">編輯電磁接觸器</h3>
+            <div class="mb-4">
+                <label for="contactor-name-input" class="block text-sm font-medium text-gray-300 mb-1">名稱</label>
+                <input type="text" id="contactor-name-input" class="bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+            </div>
             <div class="flex flex-col space-y-4">
                 <button id="add-aux-contact" class="flex-1 bg-green-600 hover:bg-green-700 p-2 rounded">加裝輔助接點</button>
                 <button id="remove-aux-contact" class="flex-1 bg-red-600 hover:bg-red-700 p-2 rounded">移除輔助接點</button>
@@ -148,6 +181,7 @@
     const addAuxContactBtn = document.getElementById('add-aux-contact');
     const removeAuxContactBtn = document.getElementById('remove-aux-contact');
     const closeContactorEditModalBtn = document.getElementById('close-contactor-edit-modal');
+    const contactorNameInput = document.getElementById('contactor-name-input');
 
     const poleModal = document.getElementById('pole-modal');
     const poleModalTitle = document.getElementById('pole-modal-title');
@@ -165,6 +199,7 @@
     let components = [];
     let wires = [];
     let nextId = 0;
+    let contactorCounter = 1;
     
     // --- State Management ---
     let activeToolType = null;
@@ -189,6 +224,7 @@
     let view = { scale: 1.0, tx: 0, ty: 0 };
     let isPanning = false;
     let panStart = { x: 0, y: 0 };
+    let pinchState = { active: false, initialDist: 0 };
 
 
     // --- Wire Settings ---
@@ -717,6 +753,7 @@
     class MagneticContactor extends Component {
         constructor(x, y) {
             super(x, y, 'contactor');
+            this.name = 'MC' + contactorCounter++;
             this.coilEnergized = false;
             this.hasLeftAux = false;
             this._updateDimensions();
@@ -775,9 +812,13 @@
             ctx.strokeRect(this.x, mainBoxY, this.width, mainBoxHeight);
 
             ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
-            ctx.font = `${GRID_SIZE*0.6}px sans-serif`;
-            ctx.textAlign = 'center';
+            ctx.font = `${GRID_SIZE*0.8}px sans-serif`;
+            ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
+            ctx.fillText(this.name, this.x - GRID_SIZE * 0.5, this.y + this.height / 2);
+            
+            ctx.textAlign = 'center';
+            ctx.font = `${GRID_SIZE*0.6}px sans-serif`;
 
             ctx.fillText('A1', this.x + offsetX + GRID_SIZE * 2, this.y - GRID_SIZE * 0.5);
             ctx.fillText('A2', this.x + offsetX + GRID_SIZE * 4, this.y - GRID_SIZE * 0.5);
@@ -1070,50 +1111,8 @@
         }
         draw();
     }
-
-    canvas.addEventListener('mousemove', (e) => {
-        if (isPanning) {
-            canvas.style.cursor = 'grabbing';
-            const dx = e.clientX - panStart.x;
-            const dy = e.clientY - panStart.y;
-            view.tx += dx;
-            view.ty += dy;
-            panStart = { x: e.clientX, y: e.clientY };
-            draw();
-            return;
-        }
-
-        const pos = getCanvasMousePos(e);
-
-        if (longPressTimer) {
-            const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
-            if (dist > 5) { clearTimeout(longPressTimer); longPressTimer = null; }
-        }
-
-        if (isDraggingPreview && placementPreview) {
-            placementPreview.x = snapToGrid(pos.x - dragOffset.x);
-            placementPreview.y = snapToGrid(pos.y - dragOffset.y);
-            justDragged = true;
-        } else if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
-            const newX = snapToGrid(pos.x - dragOffset.x); 
-            const newY = snapToGrid(pos.y - dragOffset.y); 
-            draggedComponent.updatePosition(newX, newY);
-            justDragged = true;
-        } else if (activeToolType === 'wire' && wiringState.start) { 
-            wiringState.end = pos; 
-        } else if (draggedGhost) {
-            draggedGhost.x = pos.x - dragOffset.x;
-            draggedGhost.y = pos.y - dragOffset.y;
-            const tempRect = { x: snapToGrid(draggedGhost.x), y: snapToGrid(draggedGhost.y), width: draggedGhost.width, height: draggedGhost.height };
-            draggedGhost.isColliding = checkCollision(tempRect);
-        }
-        draw();
-    });
-
-    canvas.addEventListener('click', (e) => {
-        if (justDragged) return;
-        const { x, y } = getCanvasMousePos(e);
-
+    
+    function handleCanvasInteraction(x, y) {
         if (selectedWire && wireEditorUI.colorRect) {
             const cr = wireEditorUI.colorRect; const tr = wireEditorUI.thickRect; const dr = wireEditorUI.deleteRect;
             if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) { selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return; }
@@ -1211,6 +1210,52 @@
             }
         }
         draw();
+    }
+
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (isPanning) {
+            canvas.style.cursor = 'grabbing';
+            const dx = e.clientX - panStart.x;
+            const dy = e.clientY - panStart.y;
+            view.tx += dx;
+            view.ty += dy;
+            panStart = { x: e.clientX, y: e.clientY };
+            draw();
+            return;
+        }
+
+        const pos = getCanvasMousePos(e);
+
+        if (longPressTimer) {
+            const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
+            if (dist > 5) { clearTimeout(longPressTimer); longPressTimer = null; }
+        }
+
+        if (isDraggingPreview && placementPreview) {
+            placementPreview.x = snapToGrid(pos.x - dragOffset.x);
+            placementPreview.y = snapToGrid(pos.y - dragOffset.y);
+            justDragged = true;
+        } else if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
+            const newX = snapToGrid(pos.x - dragOffset.x); 
+            const newY = snapToGrid(pos.y - dragOffset.y); 
+            draggedComponent.updatePosition(newX, newY);
+            justDragged = true;
+        } else if (activeToolType === 'wire' && wiringState.start) { 
+            wiringState.end = pos; 
+        } else if (draggedGhost) {
+            draggedGhost.x = pos.x - dragOffset.x;
+            draggedGhost.y = pos.y - dragOffset.y;
+            const tempRect = { x: snapToGrid(draggedGhost.x), y: snapToGrid(draggedGhost.y), width: draggedGhost.width, height: draggedGhost.height };
+            draggedGhost.isColliding = checkCollision(tempRect);
+        }
+        draw();
+    });
+
+    canvas.addEventListener('click', (e) => {
+        if (justDragged) return;
+        const { x, y } = getCanvasMousePos(e);
+        handleCanvasInteraction(x,y);
     });
 
     canvas.addEventListener('dblclick', (e) => {
@@ -1218,7 +1263,7 @@
         if (clickedComponent) {
             selectedComponentForEdit = clickedComponent;
             if (clickedComponent.type === 'nfb') { poleModalTitle.textContent = `編輯 NFB 極性`; openPoleModal(['1P', '2P', '3P', '4P']); }
-            else if (clickedComponent.type === 'breaker') { poleModalTitle.textContent = `編輯斷路器極數`; openPoleModal(['1P', '2P', '3P']); }
+            else if (clickedComponent.type === 'breaker') { poleModalTitle.textContent = `編輯断路器極數`; openPoleModal(['1P', '2P', '3P']); }
             else if (clickedComponent.type === 'switch') { switchModal.classList.remove('hidden'); }
             else if (clickedComponent.type === 'bulb') { clickedComponent.cycleColor(); draw(); }
             else if (clickedComponent.type === 'fuse' && clickedComponent.isBlown) {
@@ -1226,6 +1271,7 @@
                 draw();
             }
             else if (clickedComponent.type === 'contactor') {
+                contactorNameInput.value = clickedComponent.name;
                 if (clickedComponent.hasLeftAux) {
                     addAuxContactBtn.style.display = 'none';
                     removeAuxContactBtn.style.display = 'block';
@@ -1440,8 +1486,12 @@
         }
     });
     closeContactorEditModalBtn.addEventListener('click', () => {
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'contactor') {
+            selectedComponentForEdit.name = contactorNameInput.value;
+        }
         contactorEditModal.classList.add('hidden');
         selectedComponentForEdit = null;
+        draw();
     });
 
     poleOptionsContainer.addEventListener('click', (e) => { if (e.target.classList.contains('pole-btn')) { const poles = e.target.dataset.poles; if (selectedComponentForEdit) { selectedComponentForEdit.setPoles(poles); draw(); } poleModal.classList.add('hidden'); selectedComponentForEdit = null; } });
@@ -1464,6 +1514,7 @@
                 if (c.state) data.state = c.state;
                 if (c.position) data.position = c.position;
                 if (c.hasLeftAux !== undefined) data.hasLeftAux = c.hasLeftAux;
+                if (c.name) data.name = c.name;
                 return data;
             }),
             wires: wires.map(w => ({
@@ -1474,7 +1525,8 @@
                 color: w.color,
                 thickness: w.thickness
             })),
-            nextId: nextId
+            nextId: nextId,
+            contactorCounter: contactorCounter
         };
 
         const dataStr = JSON.stringify(layout, null, 2);
@@ -1548,6 +1600,7 @@
         });
 
         nextId = layout.nextId || 0;
+        contactorCounter = layout.contactorCounter || 1;
         draw();
     }
 
@@ -1585,6 +1638,125 @@
 
         draw();
     });
+
+    // --- TOUCH EVENTS ---
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const pos = getCanvasMousePos(touch);
+            justDragged = false;
+            potentialDragComponent = components.find(c => c.isUnderMouse(pos.x, pos.y)) || null;
+
+            if (potentialDragComponent) {
+                longPressStartPos = pos;
+                longPressTimer = setTimeout(() => {
+                    isLongPressDrag = true;
+                    draggedComponent = potentialDragComponent;
+                    draggedComponent.originalX = draggedComponent.x;
+                    draggedComponent.originalY = draggedComponent.y;
+                    dragOffset = { x: longPressStartPos.x - draggedComponent.x, y: longPressStartPos.y - draggedComponent.y };
+                    selectedWire = null;
+                    selectedComponent = null;
+                    canvas.style.cursor = 'grabbing';
+                    draw();
+                    longPressTimer = null;
+                }, 500);
+
+                if (potentialDragComponent.type === 'switch' && potentialDragComponent.switchType.startsWith('pushbutton')) {
+                    isPressingButton = true;
+                    potentialDragComponent.press();
+                    draw();
+                }
+            }
+        } else if (e.touches.length === 2) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+            pinchState.active = true;
+            pinchState.initialDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (e.touches.length === 1 && !pinchState.active) {
+            const touch = e.touches[0];
+            const pos = getCanvasMousePos(touch);
+            
+            if (longPressTimer) {
+                const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
+                if (dist > 5) { clearTimeout(longPressTimer); longPressTimer = null; }
+            }
+            
+            if (isLongPressDrag && draggedComponent) {
+                const newX = snapToGrid(pos.x - dragOffset.x);
+                const newY = snapToGrid(pos.y - dragOffset.y);
+                draggedComponent.updatePosition(newX, newY);
+                justDragged = true;
+                draw();
+            }
+
+        } else if (e.touches.length === 2 && pinchState.active) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+            
+            const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            const scaleFactor = currentDist / pinchState.initialDist;
+            
+            const rect = canvas.getBoundingClientRect();
+            const midX = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
+            const midY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+
+            const mousePointX = (midX - view.tx) / view.scale;
+            const mousePointY = (midY - view.ty) / view.scale;
+            
+            view.scale *= scaleFactor;
+            view.scale = Math.max(0.25, Math.min(4, view.scale));
+
+            view.tx = midX - mousePointX * view.scale;
+            view.ty = midY - mousePointY * view.scale;
+
+            pinchState.initialDist = currentDist;
+            draw();
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', e => {
+        e.preventDefault();
+        
+        if (!isLongPressDrag && !justDragged && e.changedTouches.length === 1 && !pinchState.active) {
+             const touch = e.changedTouches[0];
+             const { x, y } = getCanvasMousePos(touch);
+             handleCanvasInteraction(x, y);
+        }
+
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+
+        if (isLongPressDrag) {
+             if (draggedComponent) {
+                const rect = { x: draggedComponent.x, y: draggedComponent.y, width: draggedComponent.width, height: draggedComponent.height };
+                if (checkCollision(rect, draggedComponent.id)) {
+                    draggedComponent.updatePosition(draggedComponent.originalX, draggedComponent.originalY);
+                }
+            }
+            isLongPressDrag = false;
+            draggedComponent = null;
+        }
+
+        if (isPressingButton) {
+            isPressingButton = false;
+            components.forEach(c => c.release && c.release());
+        }
+
+        if (e.touches.length < 2) {
+             pinchState.active = false;
+        }
+
+        draw();
+        setTimeout(() => { justDragged = false; }, 50); // a small delay to prevent click after drag
+    }, { passive: false });
+
 
     saveButton.addEventListener('click', saveLayout);
     loadButton.addEventListener('click', () => fileInput.click());
