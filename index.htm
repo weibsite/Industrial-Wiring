@@ -1,4 +1,40 @@
-https://g.co/gemini/share/2de7f4b2ab08        }
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>電路配線模擬器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', '微軟正黑體', sans-serif;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            touch-action: none; /* Disable default touch actions like pinch-zoom on the page */
+        }
+        .tool-item {
+            @apply w-full p-3 bg-gray-700 text-white text-center rounded-lg cursor-grab shadow-md hover:bg-blue-500 transition-colors border-2 border-transparent;
+            position: relative; /* Needed for pseudo-element positioning */
+            z-index: 1;
+        }
+        /* Ensure text and icon are on top */
+        .tool-item > * {
+            position: relative;
+            z-index: 10;
+        }
+        .tool-item.active {
+             border-color: #ef4444; /* red-500 */
+        }
+        .tool-item.active::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-color: #ef4444; /* red-500 */
+            opacity: 0.5;
+            border-radius: 0.5rem; /* rounded-lg */
+            z-index: 5;
+        }
 
         canvas {
             background-color: #2d3748; /* bg-gray-800 */
@@ -50,7 +86,7 @@ https://g.co/gemini/share/2de7f4b2ab08        }
 
     <!-- Toolbar -->
     <div id="toolbar" class="w-full md:w-48 md:h-full bg-gray-800 p-2 md:p-4 flex flex-row md:flex-col md:space-y-4 shadow-lg z-10 overflow-x-auto md:overflow-y-auto">
-        <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2">工具列</h2>
+        <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2 hidden md:block">工具列</h2>
         
         <div class="tool-group">
             <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text"><span class="icon">⚡</span><span>無熔絲開關</span></span><span class="mobile-text">開關</span></div>
@@ -61,12 +97,12 @@ https://g.co/gemini/share/2de7f4b2ab08        }
             <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
         </div>
 
-        <div class="tool-group pt-4 mt-4 md:border-t border-gray-600 md:space-y-4">
+        <div class="tool-group pt-0 md:pt-4 mt-0 md:mt-4 md:border-t border-gray-600 md:space-y-4">
             <button id="move-tool" class="tool-item" data-type="move"><span class="desktop-text"><span class="icon">🪛</span><span>移動</span></span><span class="mobile-text">移動</span></button>
             
             <div>
                  <button id="wire-tool" class="tool-item" data-type="wire"><span class="desktop-text"><span class="icon">〰️</span><span>電線</span></span><span class="mobile-text">電線</span></button>
-                 <div class="flex items-center justify-center space-x-2 mt-2">
+                 <div class="flex items-center justify-center space-x-2 mt-2 md:flex">
                     <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
                     <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
                  </div>
@@ -171,6 +207,7 @@ https://g.co/gemini/share/2de7f4b2ab08        }
     let components = [];
     let wires = [];
     let nextId = 0;
+    let contactorCounter = 1;
     
     // --- State Management ---
     let activeToolType = null;
@@ -728,17 +765,7 @@ https://g.co/gemini/share/2de7f4b2ab08        }
     class MagneticContactor extends Component {
         constructor(x, y) {
             super(x, y, 'contactor');
-            const existingContactors = components.filter(c => c.type === 'contactor');
-            let maxNum = 0;
-            existingContactors.forEach(mc => {
-                if (mc.name && mc.name.startsWith('MC')) {
-                    const num = parseInt(mc.name.substring(2));
-                    if (!isNaN(num) && num > maxNum) {
-                        maxNum = num;
-                    }
-                }
-            });
-            this.name = 'MC' + (maxNum + 1);
+            this.name = 'MC' + getNextContactorNumber();
             this.coilEnergized = false;
             this.hasLeftAux = false;
             this._updateDimensions();
@@ -1445,6 +1472,7 @@ https://g.co/gemini/share/2de7f4b2ab08        }
             wiringPathPoints.pop(); 
             draw(); 
         } else if (e.key === 'Delete' && selectedComponent) {
+            if (selectedComponent.type === 'contactor') updateContactorCounter();
             wires = wires.filter(w => w.start.parent.id !== selectedComponent.id && w.end.parent.id !== selectedComponent.id);
             components = components.filter(c => c.id !== selectedComponent.id);
             selectedComponent = null;
@@ -1490,6 +1518,20 @@ https://g.co/gemini/share/2de7f4b2ab08        }
     closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
     // --- SAVE/LOAD LOGIC ---
+    function getNextContactorNumber() {
+        const existingContactors = components.filter(c => c.type === 'contactor');
+        let maxNum = 0;
+        existingContactors.forEach(mc => {
+            if (mc.name && mc.name.startsWith('MC')) {
+                const num = parseInt(mc.name.substring(2));
+                if (!isNaN(num) && num > maxNum) {
+                    maxNum = num;
+                }
+            }
+        });
+        return maxNum + 1;
+    }
+
     function saveLayout() {
         const layout = {
             components: components.map(c => {
@@ -1555,6 +1597,21 @@ https://g.co/gemini/share/2de7f4b2ab08        }
 
         layout.components.forEach(data => {
             let comp;
+            // Temporarily prevent auto-incrementing name during reconstruction
+            const originalContactorConstructor = MagneticContactor;
+            if (data.type === 'contactor') {
+                MagneticContactor = function(x,y) {
+                    Component.call(this, x, y, 'contactor');
+                    this.name = data.name; // Assign loaded name directly
+                    this.coilEnergized = false;
+                    this.hasLeftAux = data.hasLeftAux || false;
+                    this._updateDimensions();
+                    this._rebuildConnectors();
+                }
+                MagneticContactor.prototype = Object.create(Component.prototype);
+                Object.assign(MagneticContactor.prototype, originalContactorConstructor.prototype);
+            }
+            
             switch(data.type) {
                 case 'nfb': comp = new NFB(data.x, data.y); break;
                 case 'bulb': comp = new Bulb(data.x, data.y); break;
@@ -1563,6 +1620,11 @@ https://g.co/gemini/share/2de7f4b2ab08        }
                 case 'contactor': comp = new MagneticContactor(data.x, data.y); break;
                 case 'fuse': comp = new FuseHolder(data.x, data.y); break;
             }
+
+            if (data.type === 'contactor') {
+                MagneticContactor = originalContactorConstructor; // Restore original constructor
+            }
+
             if (comp) {
                 // Restore all properties
                 Object.assign(comp, data);
@@ -1589,19 +1651,6 @@ https://g.co/gemini/share/2de7f4b2ab08        }
         });
 
         nextId = layout.nextId || 0;
-        
-        // Recalculate contactor counter after loading
-        let maxNum = 0;
-        components.filter(c => c.type === 'contactor').forEach(mc => {
-             if (mc.name && mc.name.startsWith('MC')) {
-                const num = parseInt(mc.name.substring(2));
-                if (!isNaN(num) && num > maxNum) {
-                    maxNum = num;
-                }
-            }
-        });
-        contactorCounter = maxNum + 1;
-        
         draw();
     }
 
@@ -1649,9 +1698,9 @@ https://g.co/gemini/share/2de7f4b2ab08        }
             justDragged = false;
             potentialDragComponent = components.find(c => c.isUnderMouse(pos.x, pos.y)) || null;
 
-            if (potentialDragComponent) {
-                longPressStartPos = pos;
-                longPressTimer = setTimeout(() => {
+            longPressStartPos = pos;
+            longPressTimer = setTimeout(() => {
+                if(potentialDragComponent) {
                     isLongPressDrag = true;
                     draggedComponent = potentialDragComponent;
                     draggedComponent.originalX = draggedComponent.x;
@@ -1659,16 +1708,19 @@ https://g.co/gemini/share/2de7f4b2ab08        }
                     dragOffset = { x: longPressStartPos.x - draggedComponent.x, y: longPressStartPos.y - draggedComponent.y };
                     selectedWire = null;
                     selectedComponent = null;
-                    canvas.style.cursor = 'grabbing';
-                    draw();
-                    longPressTimer = null;
-                }, 500);
-
-                if (potentialDragComponent.type === 'switch' && potentialDragComponent.switchType.startsWith('pushbutton')) {
-                    isPressingButton = true;
-                    potentialDragComponent.press();
-                    draw();
+                } else if(activeToolType === null) {
+                    isPanning = true;
+                    panStart = { x: touch.clientX, y: touch.clientY };
                 }
+                canvas.style.cursor = 'grabbing';
+                draw();
+                longPressTimer = null;
+            }, 500);
+
+            if (potentialDragComponent && potentialDragComponent.type === 'switch' && potentialDragComponent.switchType.startsWith('pushbutton')) {
+                isPressingButton = true;
+                potentialDragComponent.press();
+                draw();
             }
         } else if (e.touches.length === 2) {
             clearTimeout(longPressTimer);
@@ -1680,13 +1732,24 @@ https://g.co/gemini/share/2de7f4b2ab08        }
 
     canvas.addEventListener('touchmove', e => {
         e.preventDefault();
+        if (isPanning) {
+            const touch = e.touches[0];
+            const dx = touch.clientX - panStart.x;
+            const dy = touch.clientY - panStart.y;
+            view.tx += dx;
+            view.ty += dy;
+            panStart = { x: touch.clientX, y: touch.clientY };
+            draw();
+            return;
+        }
+
         if (e.touches.length === 1 && !pinchState.active) {
             const touch = e.touches[0];
             const pos = getCanvasMousePos(touch);
             
             if (longPressTimer) {
                 const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
-                if (dist > 5) { clearTimeout(longPressTimer); longPressTimer = null; }
+                if (dist > 10) { clearTimeout(longPressTimer); longPressTimer = null; }
             }
             
             if (isLongPressDrag && draggedComponent) {
@@ -1694,8 +1757,10 @@ https://g.co/gemini/share/2de7f4b2ab08        }
                 const newY = snapToGrid(pos.y - dragOffset.y);
                 draggedComponent.updatePosition(newX, newY);
                 justDragged = true;
-                draw();
+            } else if (activeToolType === 'wire' && wiringState.start) {
+                wiringState.end = pos;
             }
+            draw();
 
         } else if (e.touches.length === 2 && pinchState.active) {
             clearTimeout(longPressTimer);
@@ -1725,9 +1790,9 @@ https://g.co/gemini/share/2de7f4b2ab08        }
     canvas.addEventListener('touchend', e => {
         e.preventDefault();
         
-        if (!isLongPressDrag && !justDragged && e.changedTouches.length === 1 && !pinchState.active) {
-            const touch = e.changedTouches[0];
-            const { x, y } = getCanvasMousePos(touch);
+        if (!isLongPressDrag && !justDragged && e.changedTouches.length === 1 && !pinchState.active && !isPanning) {
+             const touch = e.changedTouches[0];
+             const { x, y } = getCanvasMousePos(touch);
             
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
@@ -1763,6 +1828,10 @@ https://g.co/gemini/share/2de7f4b2ab08        }
             components.forEach(c => c.release && c.release());
         }
 
+        if (isPanning) {
+            isPanning = false;
+        }
+        
         if (e.touches.length < 2) {
              pinchState.active = false;
         }
