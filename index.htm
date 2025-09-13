@@ -90,11 +90,11 @@
         
         <div class="tool-group">
             <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text"><span class="icon">⚡</span><span>無熔絲開關</span></span><span class="mobile-text">開關</span></div>
-            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span> 燈 泡</span></span><span class="mobile-text">燈泡</span></div>
+            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span>燈泡</span></span><span class="mobile-text">燈泡</span></div>
             <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text"><span class="icon">🔘</span><span>開關元件</span></span><span class="mobile-text">元件</span></div>
-            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text"><span class="icon">🛡️</span><span> 斷路器</span></span><span class="mobile-text">斷路器</span></div>
+            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text"><span class="icon">🛡️</span><span>斷路器</span></span><span class="mobile-text">斷路器</span></div>
             <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text"><span class="icon">🧲</span><span>電磁接觸器</span></span><span class="mobile-text">MC</span></div>
-            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span> 保險絲座</span></span><span class="mobile-text">保險絲</span></div>
+            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
         </div>
 
         <div class="tool-group pt-0 md:pt-4 mt-0 md:mt-4 md:border-t border-gray-600 md:space-y-4">
@@ -529,7 +529,7 @@
     }
 
     class NFB extends Component {
-        constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = true; this._updateDimensions(); this._rebuildConnectors(); }
+        constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = false; this._updateDimensions(); this._rebuildConnectors(); }
         _updateDimensions() { 
             let poleCount = 0;
             if (this.poleType === '1P') poleCount = 1; if (this.poleType === '2P') poleCount = 2;
@@ -544,7 +544,7 @@
             
             labels.forEach((label, i) => {
                  const xPos = this.x + GRID_SIZE * (i + 1);
-                 const isNeutral = label === 'N' || label === 'T';
+                 const isNeutral = label === 'N' || (this.poleType === '3P' && label === 'T');
                  this.connectors.push({ id: `${this.id}-in-${i}`, parent: this, x: xPos, y: this.y, type: isNeutral ? 'neutral' : 'positive', pole: label, potential: 0 });
                  this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'output', pole: label, potential: 0 });
             });
@@ -562,7 +562,7 @@
                  ctx.fillStyle = '#a0aec0';
                  ctx.fillText(c.pole, c.x, this.y + GRID_SIZE * 2.8);
                  const startY = this.y + GRID_SIZE * 3.5; const endY = this.y + this.height - GRID_SIZE;
-                 const isBluePole = c.pole === 'N' || (this.poleType === '3P' && c.pole === 'T');
+                 const isBluePole = c.pole === 'N';
                  const outputConn = this.connectors.find(conn => conn.pole === c.pole && conn.type === 'output');
                  ctx.strokeStyle = outputConn && outputConn.potential !== 0 ? (isBluePole ? '#4299e1' : '#f6e05e') : '#a0aec0';
                  ctx.beginPath(); ctx.moveTo(c.x, startY);
