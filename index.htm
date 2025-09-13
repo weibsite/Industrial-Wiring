@@ -90,11 +90,11 @@
         
         <div class="tool-group">
             <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text"><span class="icon">⚡</span><span>無熔絲開關</span></span><span class="mobile-text">開關</span></div>
-            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span>燈泡</span></span><span class="mobile-text">燈泡</span></div>
+            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span> 燈 泡</span></span><span class="mobile-text">燈泡</span></div>
             <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text"><span class="icon">🔘</span><span>開關元件</span></span><span class="mobile-text">元件</span></div>
-            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text"><span class="icon">🛡️</span><span>斷路器</span></span><span class="mobile-text">斷路器</span></div>
+            <div class="tool-item" draggable="true" data-type="breaker"><span class="desktop-text"><span class="icon">🛡️</span><span> 斷路器</span></span><span class="mobile-text">斷路器</span></div>
             <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text"><span class="icon">🧲</span><span>電磁接觸器</span></span><span class="mobile-text">MC</span></div>
-            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
+            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span> 保險絲座</span></span><span class="mobile-text">保險絲</span></div>
         </div>
 
         <div class="tool-group pt-0 md:pt-4 mt-0 md:mt-4 md:border-t border-gray-600 md:space-y-4">
@@ -102,7 +102,7 @@
             
             <div>
                  <button id="wire-tool" class="tool-item" data-type="wire"><span class="desktop-text"><span class="icon">〰️</span><span>電線</span></span><span class="mobile-text">電線</span></button>
-                 <div class="flex items-center justify-center space-x-2 mt-2 md:flex">
+                 <div class="hidden md:flex items-center justify-center space-x-2 mt-2">
                     <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
                     <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
                  </div>
@@ -207,7 +207,6 @@
     let components = [];
     let wires = [];
     let nextId = 0;
-    let contactorCounter = 1;
     
     // --- State Management ---
     let activeToolType = null;
@@ -1124,7 +1123,7 @@
         draw();
     }
     
-    function handleCanvasInteraction(x, y) {
+    function handleCanvasInteraction(x, y, e = null) {
         if (selectedWire && wireEditorUI.colorRect) {
             const cr = wireEditorUI.colorRect; const tr = wireEditorUI.thickRect; const dr = wireEditorUI.deleteRect;
             if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) { selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return; }
@@ -1210,7 +1209,8 @@
                     selectedWire = null;
                     if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
                     if (typeof clickedComponent.toggle === 'function') {
-                        clickedComponent.toggle(e.shiftKey); 
+                        const shiftKey = e ? e.shiftKey : false;
+                        clickedComponent.toggle(shiftKey); 
                     }
                     somethingWasClicked = true;
                 }
@@ -1267,7 +1267,7 @@
     canvas.addEventListener('click', (e) => {
         if (justDragged) return;
         const { x, y } = getCanvasMousePos(e);
-        handleCanvasInteraction(x,y);
+        handleCanvasInteraction(x,y, e);
     });
 
     canvas.addEventListener('dblclick', (e) => {
@@ -1651,6 +1651,7 @@
         });
 
         nextId = layout.nextId || 0;
+        
         draw();
     }
 
@@ -1780,7 +1781,7 @@
             view.scale = Math.max(0.25, Math.min(4, view.scale));
 
             view.tx = midX - mousePointX * view.scale;
-            view.ty = midY - mousePointY * view.scale;
+            view.ty = mouseY - mousePointY * view.scale;
 
             pinchState.initialDist = currentDist;
             draw();
