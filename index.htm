@@ -622,8 +622,10 @@
         _rebuildConnectors() {
             this.connectors = [];
             const labels = [];
-            if (this.poleType === '1P') labels.push('L'); if (this.poleType === '2P') labels.push('L', 'N');
-            if (this.poleType === '3P') labels.push('R', 'S', 'T'); if (this.poleType === '4P') labels.push('R', 'S', 'T', 'N');
+            if (this.poleType === '1P') labels.push('L');
+            if (this.poleType === '2P') labels.push('L', 'N');
+            if (this.poleType === '3P') labels.push('R', 'S', 'T');
+            if (this.poleType === '4P') labels.push('R', 'S', 'T', 'N');
 
             const poleCount = labels.length;
 
@@ -634,7 +636,7 @@
                  } else {
                     xPos = this.x + GRID_SIZE * (i + 1);
                  }
-                 const isNeutral = label === 'N';
+                 const isNeutral = label === 'N' || (this.poleType === '3P' && label === 'T');
                  this.connectors.push({ id: `${this.id}-in-${i}`, parent: this, x: xPos, y: this.y, type: isNeutral ? 'neutral' : 'positive', pole: label, potential: 0 });
                  this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'output', pole: label, potential: 0 });
             });
@@ -657,10 +659,8 @@
                  
                  let lineColor = '#a0aec0'; // Default gray
                  if (outputConn && outputConn.potential !== 0) {
-                     if (c.pole === 'N') {
+                     if (c.pole === 'N' || (this.poleType === '3P' && c.pole === 'T')) {
                          lineColor = '#4299e1'; // Blue
-                     } else if (this.poleType === '4P' && c.pole === 'T') {
-                         lineColor = '#facc15'; // Tailwind yellow-400 for yellow line
                      } else {
                          lineColor = '#f6e05e'; // Default energized yellow
                      }
@@ -1175,47 +1175,51 @@
 
         _updateDimensions() {
             this.width = GRID_SIZE * 6;
-            this.height = GRID_SIZE * 5;
             if(this.motorType === '3-phase-6'){
-                this.height = GRID_SIZE * 6; // Taller for 6 terminals
+                this.height = GRID_SIZE * 9; 
+            } else {
+                this.height = GRID_SIZE * 6;
             }
         }
 
         _rebuildConnectors() {
             this.connectors = [];
             const cx = this.x + this.width / 2;
-            const topY = this.y;
-            const bottomY = this.y + this.height;
+            const singleBottomRowY = this.y + this.height;
+            const topRowY = this.y + this.height - GRID_SIZE * 4;
+            const bottomRowY = this.y + this.height;
 
             switch (this.motorType) {
                 case '3-phase-6':
-                    this.connectors.push({ id: `${this.id}-U1`, parent: this, x: this.x + GRID_SIZE, y: topY, pole: 'U1', potential: 0 });
-                    this.connectors.push({ id: `${this.id}-V1`, parent: this, x: cx, y: topY, pole: 'V1', potential: 0 });
-                    this.connectors.push({ id: `${this.id}-W1`, parent: this, x: this.x + this.width - GRID_SIZE, y: topY, pole: 'W1', potential: 0 });
-                    this.connectors.push({ id: `${this.id}-W2`, parent: this, x: this.x + GRID_SIZE, y: bottomY, pole: 'W2', potential: 0 });
-                    this.connectors.push({ id: `${this.id}-U2`, parent: this, x: cx, y: bottomY, pole: 'U2', potential: 0 });
-                    this.connectors.push({ id: `${this.id}-V2`, parent: this, x: this.x + this.width - GRID_SIZE, y: bottomY, pole: 'V2', potential: 0 });
+                    // Row 1: U1, V1, W1
+                    this.connectors.push({ id: `${this.id}-U1`, parent: this, x: this.x + GRID_SIZE, y: topRowY, pole: 'U1', potential: 0 });
+                    this.connectors.push({ id: `${this.id}-V1`, parent: this, x: cx, y: topRowY, pole: 'V1', potential: 0 });
+                    this.connectors.push({ id: `${this.id}-W1`, parent: this, x: this.x + this.width - GRID_SIZE, y: topRowY, pole: 'W1', potential: 0 });
+                    // Row 2: W2, U2, V2
+                    this.connectors.push({ id: `${this.id}-W2`, parent: this, x: this.x + GRID_SIZE, y: bottomRowY, pole: 'W2', potential: 0 });
+                    this.connectors.push({ id: `${this.id}-U2`, parent: this, x: cx, y: bottomRowY, pole: 'U2', potential: 0 });
+                    this.connectors.push({ id: `${this.id}-V2`, parent: this, x: this.x + this.width - GRID_SIZE, y: bottomRowY, pole: 'V2', potential: 0 });
                     break;
                 case '1-phase-3':
-                     this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + GRID_SIZE, y: topY, pole: 'L1', potential: 0 });
-                     this.connectors.push({ id: `${this.id}-N`, parent: this, x: cx, y: topY, pole: 'N', potential: 0 });
-                     this.connectors.push({ id: `${this.id}-L2`, parent: this, x: this.x + this.width - GRID_SIZE, y: topY, pole: 'L2', potential: 0 });
+                     this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + GRID_SIZE, y: singleBottomRowY, pole: 'L1', potential: 0 });
+                     this.connectors.push({ id: `${this.id}-N`, parent: this, x: cx, y: singleBottomRowY, pole: 'N', potential: 0 });
+                     this.connectors.push({ id: `${this.id}-L2`, parent: this, x: this.x + this.width - GRID_SIZE, y: singleBottomRowY, pole: 'L2', potential: 0 });
                     break;
                 case '1-phase-2':
-                     this.connectors.push({ id: `${this.id}-L`, parent: this, x: this.x + GRID_SIZE * 1.5, y: topY, pole: 'L', potential: 0 });
-                     this.connectors.push({ id: `${this.id}-N`, parent: this, x: this.x + this.width - GRID_SIZE * 1.5, y: topY, pole: 'N', potential: 0 });
+                     this.connectors.push({ id: `${this.id}-L`, parent: this, x: this.x + GRID_SIZE * 1.5, y: singleBottomRowY, pole: 'L', potential: 0 });
+                     this.connectors.push({ id: `${this.id}-N`, parent: this, x: this.x + this.width - GRID_SIZE * 1.5, y: singleBottomRowY, pole: 'N', potential: 0 });
                     break;
             }
         }
 
         draw(ctx) {
+            const bodyHeight = GRID_SIZE * 5;
             const cx = this.x + this.width / 2;
-            const cy = this.y + this.height / 2;
+            const cy = this.y + bodyHeight / 2;
             const radius = this.width / 2 - GRID_SIZE;
             
-            // Simplified Power Check
-            const topConnectors = this.connectors.filter(c => c.y === this.y);
-            this.isPowered = topConnectors.length > 0 && topConnectors.every(c => c.potential !== 0);
+            const poweredConnectors = this.connectors.filter(c => c.potential !== 0);
+            this.isPowered = poweredConnectors.length >= 2;
 
             ctx.strokeStyle = this.isPowered ? '#f6e05e' : '#a0aec0';
             ctx.lineWidth = 2;
@@ -1256,7 +1260,7 @@
                 drawConnector(ctx, c);
                 ctx.fillStyle = '#a0aec0';
                 ctx.font = `${GRID_SIZE * 0.6}px sans-serif`;
-                const yOffset = (c.y > this.y + this.height / 2) ? 12 : -12;
+                let yOffset = (c.y > this.y + this.height / 2) ? 12 : -12;
                 ctx.fillText(c.pole, c.x, c.y + yOffset);
             });
         }
@@ -1326,7 +1330,7 @@
                 if (comp.type === 'switch') {
                     if (comp.switchType.startsWith('pushbutton')) {
                         const isNo = comp.switchType.endsWith('no');
-                        const isClosed = (isNo && comp.isPressed) || (!isNo && !comp.isPressed);
+                        const isClosed = (isNo && comp.isPressed) || (!isNo && !this.isPressed);
                         if (isClosed) internalConnections.push([comp.connectors[0], comp.connectors[1]]);
                     } else if (comp.switchType === 'rotary_2pos') {
                         if (comp.position === 1) internalConnections.push([comp.connectors.find(c=>c.type==='com'), comp.connectors.find(c=>c.type==='out_left')]);
