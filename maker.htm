@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>元件製作器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', '微軟正黑體', sans-serif;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+        canvas {
+            background-color: #1a202c; /* Dark Blue */
+            cursor: default;
+        }
+        .tool-item.active {
+            @apply bg-blue-600 ring-2 ring-blue-300;
+        }
+        #code-output {
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre;
+            background-color: #2d3748;
+            color: #a0aec0;
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+        #text-editor {
+            position: absolute;
+            display: none;
+            background-color: #4a5568;
+            color: white;
+            border: 1px solid #a0aec0;
+            padding: 2px;
+            font-family: 'Inter', '微軟正黑體', sans-serif;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-white h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col p-4 gap-4">
+        <h1 class="text-2xl font-bold text-center">元件製作器</h1>
+        <div id="canvas-wrapper" class="flex-1 bg-gray-700 rounded-lg overflow-hidden shadow-lg relative">
+            <canvas id="canvas"></canvas>
+            <input type="text" id="text-editor" />
+        </div>
+    </div>
+
+    <!-- Toolbar & Output -->
+    <div class="w-full md:w-96 bg-gray-900 p-4 flex flex-col gap-4 overflow-y-auto">
+        <div>
+            <h2 class="text-xl font-bold mb-2">工具列</h2>
+            <div class="grid grid-cols-2 gap-2">
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded active" data-type="select">移動/選取</button>
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="line">畫線</button>
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="rect">畫矩形</button>
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="text">文字</button>
+                <button class="tool-item bg-green-700 hover:bg-green-600 p-2 rounded" data-type="connector">接點</button>
+                <button class="tool-item bg-red-700 hover:bg-red-600 p-2 rounded" data-type="delete">刪除</button>
+            </div>
+        </div>
+
+        <div>
+            <button id="export-btn" class="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-bold text-lg shadow-md">🚀 產生程式碼</button>
+        </div>
+        
+        <div class="flex-1 flex flex-col min-h-0">
+             <h2 class="text-xl font-bold mb-2">輸出程式碼</h2>
+             <div id="code-output-container" class="flex-1 min-h-0">
+                <pre id="code-output">點擊按鈕以產生程式碼...</pre>
+             </div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const canvasWrapper = document.getElementById('canvas-wrapper');
+    const textEditor = document.getElementById('text-editor');
+    const exportBtn = document.getElementById('export-btn');
+    const codeOutput = document.getElementById('code-output');
+
+    const GRID_SIZE = 20;
+    let drawingElements = [];
+    let activeTool = 'select';
+    let selectedElements = [];
+    let editingTextElement = null;
+    let connectorPreviewPos = null;
+    
+    // State for drawing actions
+    let isDrawing = false;
+    let isDragging = false;
+    let isMarqueeSelecting = false;
+    let startPos = {x:0, y:0};
+    let currentPos = {x:0, y:0};
+    let dragOffset = {x:0, y:0};
+    let dragStartPositions = new Map();
+
+    // --- Canvas & Drawing ---
+    function resizeCanvas() {
+        const container = canvas.parentElement;
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        draw();
+    }
+
+    function drawGrid() {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 0.5;
+        for (let x = 0; x < canvas.width; x += GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+            ctx.stroke();
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+
+        const defaultColor = '#f6e05e';
+
+        // Draw all elements
+        drawingElements.forEach(el => {
+            if (el === editingTextElement) return; // Don't draw text being edited
+            ctx.save();
+            ctx.strokeStyle = defaultColor;
+            ctx.lineWidth = 2;
+            ctx.fillStyle = defaultColor;
+            drawElement(ctx, el);
+            ctx.restore();
+        });
+        
+        // Draw selection highlights
+        if (selectedElements.length > 0) {
+            ctx.save();
+            ctx.strokeStyle = '#38bdf8'; // sky-500
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#38bdf8';
+            ctx.shadowBlur = 8;
+            selectedElements.forEach(el => {
+                 drawElement(ctx, el, true);
+            });
+            ctx.restore();
+        }
+
+        // Draw drawing previews (line, rect)
+        if (isDrawing) {
+             ctx.save();
+             ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+             ctx.lineWidth = 2;
+             ctx.setLineDash([5, 5]);
+             if (activeTool === 'line') {
+                 ctx.beginPath();
+                 ctx.moveTo(startPos.x, startPos.y);
+                 ctx.lineTo(currentPos.x, currentPos.y);
+                 ctx.stroke();
+             } else if (activeTool === 'rect') {
+                 ctx.strokeRect(startPos.x, startPos.y, currentPos.x - startPos.x, currentPos.y - startPos.y);
+             }
+             ctx.restore();
+        }
+        
+        // Draw marquee selection rectangle
+        if (isMarqueeSelecting) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+            ctx.lineWidth = 1;
+            const rect = getMarqueeRect();
+            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+            ctx.restore();
+        }
+
+        // Draw connector preview
+        if (connectorPreviewPos && activeTool === 'connector') {
+            ctx.save();
+            ctx.globalAlpha = 0.6;
+            ctx.strokeStyle = '#38bdf8'; // A preview color
+            drawElement(ctx, { type: 'connector', x: connectorPreviewPos.x, y: connectorPreviewPos.y, label: '' });
+            ctx.restore();
+        }
+    }
+    
+    function drawElement(ctx, el, isSelection = false) {
+        switch (el.type) {
+            case 'rect':
+                ctx.strokeRect(el.x, el.y, el.width, el.height);
+                break;
+            case 'line':
+                ctx.beginPath();
+                ctx.moveTo(el.x1, el.y1);
+                ctx.lineTo(el.x2, el.y2);
+                ctx.stroke();
+                break;
+            case 'text':
+                ctx.font = el.font || '16px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(el.content, el.x, el.y);
+                break;
+            case 'connector':
+                if (!isSelection && el.label) { // Dont fill text on selection highlight
+                    ctx.font = '12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#a0aec0'; // label color
+                    ctx.fillText(el.label, el.x, el.y + 15);
+                }
+                 // Draw circle with cross
+                const radius = 6;
+                ctx.beginPath();
+                ctx.arc(el.x, el.y, radius, 0, Math.PI * 2);
+                ctx.moveTo(el.x - radius, el.y);
+                ctx.lineTo(el.x + radius, el.y);
+                ctx.moveTo(el.x, el.y - radius);
+                ctx.lineTo(el.x, el.y + radius);
+                ctx.stroke();
+                break;
+        }
+    }
+    
+    // --- Tool & Properties Logic ---
+    function setActiveTool(toolType) {
+        document.querySelector('.tool-item.active')?.classList.remove('active');
+        document.querySelector(`.tool-item[data-type="${toolType}"]`)?.classList.add('active');
+        activeTool = toolType;
+        selectedElements = [];
+        connectorPreviewPos = null;
+        draw();
+    }
+
+    document.querySelectorAll('.tool-item').forEach(btn => {
+        btn.addEventListener('click', () => setActiveTool(btn.dataset.type));
+    });
+
+
+    // --- Canvas Event Handlers ---
+    const snapToIntersection = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
+    const snapToHalfGrid = (val) => Math.round(val / (GRID_SIZE / 2)) * (GRID_SIZE / 2);
+    
+    function getElementAtPos(x, y) {
+        return [...drawingElements].reverse().find(el => {
+            switch(el.type) {
+                case 'rect': return x >= el.x && x <= el.x + el.width && y >= el.y && y <= el.y + el.height;
+                case 'text': 
+                    ctx.font = el.font || '16px sans-serif'; // Ensure context font is set for measurement
+                    return x >= el.x && x <= el.x + ctx.measureText(el.content).width && y >= el.y && y <= el.y + 16;
+                case 'connector': return Math.hypot(el.x - x, el.y - y) < 10;
+                case 'line': return pDistance(x, y, el.x1, el.y1, el.x2, el.y2) < 5;
+            }
+            return false;
+        });
+    }
+    
+    function getMarqueeRect() {
+        const x = Math.min(startPos.x, currentPos.x);
+        const y = Math.min(startPos.y, currentPos.y);
+        const width = Math.abs(startPos.x - currentPos.x);
+        const height = Math.abs(startPos.y - currentPos.y);
+        return {x, y, width, height};
+    }
+    
+    function pDistance(x, y, x1, y1, x2, y2) {
+        const A = x - x1; const B = y - y1; const C = x2 - x1; const D = y2 - y1;
+        const dot = A * C + B * D; const len_sq = C * C + D * D;
+        let param = -1; if (len_sq != 0) param = dot / len_sq;
+        let xx, yy;
+        if (param < 0) { xx = x1; yy = y1; } 
+        else if (param > 1) { xx = x2; yy = y2; } 
+        else { xx = x1 + param * C; yy = y1 + param * D; }
+        return Math.sqrt(Math.pow(x - xx, 2) + Math.pow(y - yy, 2));
+    }
+
+
+    canvas.addEventListener('mousedown', e => {
+        const rect = canvas.getBoundingClientRect();
+        startPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        
+        if (['line', 'rect'].includes(activeTool)) {
+            isDrawing = true;
+            currentPos = { ...startPos };
+        } else if (activeTool === 'select') {
+            const clickedElement = getElementAtPos(startPos.x, startPos.y);
+            if (clickedElement) {
+                isDragging = true;
+                if (!selectedElements.includes(clickedElement)) {
+                    selectedElements = [clickedElement];
+                }
+                dragStartPositions.clear();
+                selectedElements.forEach(el => {
+                    dragStartPositions.set(el, {x: el.x, y: el.y, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 });
+                });
+                dragOffset = { x: startPos.x, y: startPos.y };
+            } else {
+                isMarqueeSelecting = true;
+                selectedElements = [];
+            }
+        }
+        draw();
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        currentPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        
+        let needsRedraw = false;
+
+        if (activeTool === 'connector') {
+            connectorPreviewPos = { x: snapToIntersection(currentPos.x), y: snapToIntersection(currentPos.y) };
+            needsRedraw = true;
+        } else {
+             if (connectorPreviewPos) needsRedraw = true;
+             connectorPreviewPos = null;
+        }
+        
+        if (isDrawing && activeTool === 'line') {
+            const dx = currentPos.x - startPos.x;
+            const dy = currentPos.y - startPos.y;
+            const angle = Math.atan2(dy, dx);
+            const snapAngle = Math.PI / 12; // 15 degrees
+            const snappedAngle = Math.round(angle / snapAngle) * snapAngle;
+            const dist = Math.hypot(dx, dy);
+
+            currentPos.x = startPos.x + Math.cos(snappedAngle) * dist;
+            currentPos.y = startPos.y + Math.sin(snappedAngle) * dist;
+            needsRedraw = true;
+        } else if (isDrawing || isMarqueeSelecting) {
+            needsRedraw = true; 
+        } else if (isDragging) {
+            const dx = currentPos.x - dragOffset.x;
+            const dy = currentPos.y - dragOffset.y;
+            
+            selectedElements.forEach(el => {
+                const start = dragStartPositions.get(el);
+                if (el.type === 'line') {
+                    el.x1 = snapToHalfGrid(start.x1 + dx);
+                    el.y1 = snapToHalfGrid(start.y1 + dy);
+                    el.x2 = snapToHalfGrid(start.x2 + dx);
+                    el.y2 = snapToHalfGrid(start.y2 + dy);
+                } else {
+                    el.x = snapToHalfGrid(start.x + dx);
+                    el.y = snapToHalfGrid(start.y + dy);
+                }
+            });
+            needsRedraw = true;
+        }
+
+        if(needsRedraw) draw();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        if(connectorPreviewPos){
+            connectorPreviewPos = null;
+            draw();
+        }
+    });
+    
+    canvas.addEventListener('mouseup', e => {
+        if (isDrawing) {
+            isDrawing = false;
+            const snappedEndPos = {x: snapToHalfGrid(currentPos.x), y: snapToHalfGrid(currentPos.y) };
+            const snappedStartPos = {x: snapToHalfGrid(startPos.x), y: snapToHalfGrid(startPos.y) };
+            if (activeTool === 'line') {
+                drawingElements.push({ type: 'line', x1: snappedStartPos.x, y1: snappedStartPos.y, x2: snappedEndPos.x, y2: snappedEndPos.y });
+            } else if (activeTool === 'rect') {
+                const rect = getMarqueeRect();
+                drawingElements.push({ type: 'rect', x: snapToHalfGrid(rect.x), y: snapToHalfGrid(rect.y), width: snapToHalfGrid(rect.width), height: snapToHalfGrid(rect.height) });
+            }
+        } else if (isDragging) {
+            isDragging = false;
+            dragStartPositions.clear();
+        } else if (isMarqueeSelecting) {
+            isMarqueeSelecting = false;
+            const marquee = getMarqueeRect();
+            selectedElements = drawingElements.filter(el => {
+                let elBox;
+                if(el.type === 'line') {
+                    elBox = { x: Math.min(el.x1, el.x2), y: Math.min(el.y1, el.y2), width: Math.abs(el.x1-el.x2), height: Math.abs(el.y1-el.y2) }
+                } else {
+                    ctx.font = el.font || '16px sans-serif';
+                    const textWidth = el.type === 'text' ? ctx.measureText(el.content).width : (el.width || 0);
+                    elBox = { x: el.x, y: el.y, width: textWidth, height: el.height || 16}
+                }
+                return marquee.x < elBox.x + elBox.width && marquee.x + marquee.width > elBox.x &&
+                       marquee.y < elBox.y + elBox.height && marquee.y + marquee.height > elBox.y;
+            });
+        }
+        draw();
+    });
+    
+    canvas.addEventListener('click', e => {
+         if (isDragging || isMarqueeSelecting || isDrawing || e.detail > 1) return;
+         const clickPos = {x: e.offsetX, y: e.offsetY};
+         
+         if (activeTool === 'text') {
+            const snappedClickPos = {x: snapToHalfGrid(clickPos.x), y: snapToHalfGrid(clickPos.y)};
+            const existingText = getElementAtPos(clickPos.x, clickPos.y);
+            if (!existingText || existingText.type !== 'text') {
+                 drawingElements.push({ type: 'text', x: snappedClickPos.x, y: snappedClickPos.y, content: '文字', font: '16px sans-serif' });
+                 setActiveTool('select');
+            }
+         } else if (activeTool === 'connector') {
+             const snappedClickPos = {x: snapToIntersection(clickPos.x), y: snapToIntersection(clickPos.y)};
+             const label = prompt("請輸入接點標籤:", "A1");
+             if (label) {
+                drawingElements.push({ type: 'connector', x: snappedClickPos.x, y: snappedClickPos.y, label });
+             }
+         } else if (activeTool === 'delete') {
+             const elToDelete = getElementAtPos(clickPos.x, clickPos.y);
+             if (elToDelete) {
+                 drawingElements = drawingElements.filter(el => el !== elToDelete);
+             }
+         }
+         draw();
+    });
+    
+    canvas.addEventListener('dblclick', e => {
+        const pos = {x: e.offsetX, y: e.offsetY};
+        const el = getElementAtPos(pos.x, pos.y);
+        if (el && el.type === 'text') {
+            editText(el);
+        }
+    });
+
+    function editText(el) {
+        editingTextElement = el;
+        selectedElements = []; // Deselect other elements
+        textEditor.style.display = 'block';
+        textEditor.style.left = `${el.x}px`;
+        textEditor.style.top = `${el.y}px`;
+        textEditor.style.font = el.font || '16px sans-serif';
+        textEditor.style.width = `${ctx.measureText(el.content).width + 20}px`;
+        textEditor.value = el.content;
+        textEditor.focus();
+        draw();
+    }
+
+    textEditor.addEventListener('blur', finishEditing);
+    textEditor.addEventListener('keydown', e => {
+        e.stopPropagation(); // ALWAYS stop propagation to prevent window listener from firing
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Prevent form submission if any
+            textEditor.blur();
+        } else if (e.key === 'Escape') {
+            editingTextElement = null; // Discard changes
+            textEditor.blur();
+        }
+    });
+
+    function finishEditing() {
+        if (editingTextElement) {
+            editingTextElement.content = textEditor.value;
+        }
+        editingTextElement = null;
+        textEditor.style.display = 'none';
+        draw();
+    }
+
+
+    // --- Keyboard & Code Generation ---
+    window.addEventListener('keydown', e => {
+        if (e.target.tagName === 'INPUT') return; // Ignore key events if an input is focused
+
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selectedElements.length > 0) {
+                drawingElements = drawingElements.filter(el => !selectedElements.includes(el));
+                selectedElements = [];
+                draw();
+            }
+        }
+    });
+
+    exportBtn.addEventListener('click', () => {
+        let minX = Infinity, minY = Infinity;
+        if (drawingElements.length === 0) {
+            codeOutput.textContent = "畫布上沒有任何元件可供輸出。";
+            return;
+        }
+
+        drawingElements.forEach(el => {
+            minX = Math.min(minX, el.x, el.x1 || el.x);
+            minY = Math.min(minY, el.y, el.y1 || el.y);
+        });
+
+        const connectors = drawingElements.filter(el => el.type === 'connector');
+        
+        let rebuildConnectorsCode = `
+    _rebuildConnectors() {
+        this.connectors = [];
+        ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${c.label}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${c.label}', potential: 0 });`).join('\n        ')}
+    }
+`;
+        
+        let drawCode = `
+    draw(ctx) {
+        const baseIsPowered = this.connectors.some(c => c.potential !== 0);
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = 2;
+        
+        ${drawingElements.map(el => {
+            if (el.type === 'connector') return ''; // Connectors are drawn separately
+            const relX = el.x - minX;
+            const relY = el.y - minY;
+            switch(el.type) {
+                case 'rect': return `ctx.strokeRect(this.x + ${relX}, this.y + ${relY}, ${el.width}, ${el.height});`;
+                case 'line': return `ctx.beginPath();\n        ctx.moveTo(this.x + ${el.x1 - minX}, this.y + ${el.y1 - minY});\n        ctx.lineTo(this.x + ${el.x2 - minX}, this.y + ${el.y2 - minY});\n        ctx.stroke();`;
+                case 'text': return `ctx.font = '${el.font}';\n        ctx.fillText('${el.content.replace(/'/g, "\\'")}', this.x + ${relX}, this.y + ${relY});`;
+                default: return '';
+            }
+        }).filter(Boolean).join('\n        ')}
+
+        this.connectors.forEach(c => {
+            drawConnector(ctx, c);
+        });
+    }
+`;
+
+    let fullClassCode = `
+/* --- 自訂元件程式碼 --- */
+class CustomComponent extends Component {
+    constructor(x, y) {
+        super(x, y, 'customComponent');
+        // 在此定義元件的預設狀態屬性，例如: this.isOn = false;
+        this._updateDimensions();
+        this._rebuildConnectors();
+    }
+    
+    _updateDimensions() {
+      // Calculate width and height based on drawn elements
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const elements = ${JSON.stringify(drawingElements, null, 2)};
+      if(elements.length === 0) { this.width = 0; this.height = 0; return; }
+      elements.forEach(el => {
+            minX = Math.min(minX, el.x, el.x1 || el.x, el.x2 || el.x);
+            minY = Math.min(minY, el.y, el.y1 || el.y, el.y2 || el.y);
+            maxX = Math.max(maxX, el.x + (el.width || 0), el.x1 || el.x, el.x2 || el.x);
+            maxY = Math.max(maxY, el.y + (el.height || 0), el.y1 || el.y, el.y2 || el.y);
+      });
+      this.width = Math.ceil((maxX - minX) / GRID_SIZE) * GRID_SIZE;
+      this.height = Math.ceil((maxY - minY) / GRID_SIZE) * GRID_SIZE;
+    }
+
+    ${rebuildConnectorsCode}
+    ${drawCode}
+
+    toggle() {
+      console.log('Custom component toggled!');
+    }
+}
+`;
+        codeOutput.textContent = fullClassCode.trim();
+    });
+
+    // --- Init ---
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+</script>
+</body>
+</html>
+
