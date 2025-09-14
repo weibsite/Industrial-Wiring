@@ -61,11 +61,12 @@
     <div class="w-full md:w-96 bg-gray-900 p-4 flex flex-col gap-4 overflow-y-auto">
         <div>
             <h2 class="text-xl font-bold mb-2">工具列</h2>
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-3 gap-2">
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded active" data-type="select">移動/選取</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="line">畫線</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="rect">畫矩形</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="circle">畫圓形</button>
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="knob">調整紐</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="text">文字</button>
                 <button class="tool-item bg-green-700 hover:bg-green-600 p-2 rounded" data-type="connector">接點</button>
                 <button class="tool-item bg-red-700 hover:bg-red-600 p-2 rounded col-span-2" data-type="delete">刪除</button>
@@ -95,8 +96,10 @@
         <div class="flex flex-col gap-2">
             <button id="func-conductive-btn" class="w-full text-left bg-gray-600 hover:bg-gray-500 p-2 rounded text-white">相通</button>
             <button id="func-coil-btn" class="w-full text-left bg-blue-600 hover:bg-blue-500 p-2 rounded text-white">線圈</button>
-            <button id="func-a-contact-btn" class="w-full text-left bg-green-600 hover:bg-green-500 p-2 rounded text-white">A接點 (NO)</button>
-            <button id="func-b-contact-btn" class="w-full text-left bg-red-600 hover:bg-red-500 p-2 rounded text-white">B接點 (NC)</button>
+            <button id="func-a-contact-btn" class="w-full text-left bg-green-600 hover:bg-green-500 p-2 rounded text-white">瞬時A接點 (NO)</button>
+            <button id="func-b-contact-btn" class="w-full text-left bg-red-600 hover:bg-red-500 p-2 rounded text-white">瞬時B接點 (NC)</button>
+            <button id="func-timed-a-contact-btn" class="w-full text-left bg-green-800 hover:bg-green-700 p-2 rounded text-white">限時A接點 (NO-T)</button>
+            <button id="func-timed-b-contact-btn" class="w-full text-left bg-red-800 hover:bg-red-700 p-2 rounded text-white">限時B接點 (NC-T)</button>
         </div>
     </div>
 
@@ -116,6 +119,9 @@
     const funcCoilBtn = document.getElementById('func-coil-btn');
     const funcAContactBtn = document.getElementById('func-a-contact-btn');
     const funcBContactBtn = document.getElementById('func-b-contact-btn');
+    const funcTimedAContactBtn = document.getElementById('func-timed-a-contact-btn');
+    const funcTimedBContactBtn = document.getElementById('func-timed-b-contact-btn');
+
 
     const GRID_SIZE = 20;
     const HANDLE_SIZE = 8;
@@ -132,6 +138,8 @@
     let isMarqueeSelecting = false;
     let isResizing = false;
     let isPanning = false;
+    let isAdjustingKnob = false;
+    let adjustingKnob = null;
     let resizingElement = null;
     let resizeHandle = null;
     let startPos = {x:0, y:0};
@@ -214,6 +222,46 @@
                 case 'coil': color = '#60a5fa'; dash = [4,4]; break;
                 case 'a-contact': color = '#4ade80'; dash = [4,4]; break;
                 case 'b-contact': color = '#f87171'; dash = [4,4]; break;
+                case 'timed-a-contact': {
+                    color = '#a855f7'; // Purple
+                    dash = [4, 4];
+                    const knob = drawingElements.find(e => e.id === func.knobId);
+                    const connectors = func.connectors.map(id => drawingElements.find(el => el.id === id)).filter(Boolean);
+                    if (knob && connectors.length === 2) {
+                        ctx.save();
+                        ctx.strokeStyle = '#f59e0b'; // amber-500
+                        ctx.setLineDash([2 / scale, 2 / scale]);
+                        ctx.lineWidth = 1 / scale;
+                        ctx.beginPath();
+                        ctx.moveTo(knob.x, knob.y);
+                        const midX = (connectors[0].x + connectors[1].x) / 2;
+                        const midY = (connectors[0].y + connectors[1].y) / 2;
+                        ctx.lineTo(midX, midY);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                    break;
+                }
+                case 'timed-b-contact': {
+                    color = '#3b82f6'; // Blue
+                    dash = [4, 4];
+                    const knob = drawingElements.find(e => e.id === func.knobId);
+                    const connectors = func.connectors.map(id => drawingElements.find(el => el.id === id)).filter(Boolean);
+                    if (knob && connectors.length === 2) {
+                        ctx.save();
+                        ctx.strokeStyle = '#f59e0b'; // amber-500
+                        ctx.setLineDash([2 / scale, 2 / scale]);
+                        ctx.lineWidth = 1 / scale;
+                        ctx.beginPath();
+                        ctx.moveTo(knob.x, knob.y);
+                        const midX = (connectors[0].x + connectors[1].x) / 2;
+                        const midY = (connectors[0].y + connectors[1].y) / 2;
+                        ctx.lineTo(midX, midY);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                    break;
+                }
             }
 
             if (color) {
@@ -265,7 +313,7 @@
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.font = `${14 / scale}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
                     ctx.fillText(`${gridWidth} x ${gridHeight}`, rect.x + rect.width + (5/scale), rect.y + rect.height);
                  }
-             } else if (activeTool === 'circle') {
+             } else if (['circle', 'knob'].includes(activeTool)) {
                 const radius = Math.hypot(currentPos.x - startPos.x, currentPos.y - startPos.y);
                 ctx.beginPath();
                 ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
@@ -295,6 +343,39 @@
             case 'rect': ctx.strokeRect(el.x, el.y, el.width, el.height); break;
             case 'line': ctx.beginPath(); ctx.moveTo(el.x1, el.y1); ctx.lineTo(el.x2, el.y2); ctx.stroke(); break;
             case 'circle': ctx.beginPath(); ctx.arc(el.x, el.y, el.radius, 0, Math.PI * 2); ctx.stroke(); break;
+            case 'knob': {
+                const startAngle = (3 / 4) * Math.PI; // 135 degrees (7:30)
+                const endAngle = (1 / 4) * Math.PI;   // 45 degrees (4:30)
+                
+                // Draw outer arc
+                ctx.beginPath();
+                ctx.arc(el.x, el.y, el.radius, startAngle, endAngle);
+                ctx.stroke();
+
+                // Draw pointer handle in the middle
+                const handleRadius = 12.5 / scale;
+                ctx.beginPath();
+                ctx.arc(el.x, el.y, handleRadius, 0, 2 * Math.PI);
+                ctx.fillStyle = isSelection ? '#38bdf8' : '#a0aec0';
+                ctx.fill();
+
+                // Draw line from center to handle edge based on value
+                const totalAngle = (endAngle - startAngle + 2 * Math.PI) % (2* Math.PI); // 270 degrees
+                const valueRatio = el.value / el.maxValue;
+                const pointerAngle = startAngle + valueRatio * totalAngle;
+                ctx.beginPath();
+                ctx.moveTo(el.x, el.y);
+                ctx.lineTo(el.x + handleRadius * Math.cos(pointerAngle), el.y + handleRadius * Math.sin(pointerAngle));
+                ctx.stroke();
+
+                 // Draw value text
+                ctx.font = `${Math.min(14, el.radius * 0.8) / scale}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#a0aec0';
+                ctx.fillText(el.value.toFixed(0), el.x, el.y + el.radius * 1.3); // Position text below knob
+                break;
+            }
             case 'text': ctx.font = el.font || '16px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(el.content, el.x, el.y); break;
             case 'connector':
                 if (!isSelection && el.label) {
@@ -320,15 +401,21 @@
 
     function updateActionButtonsState() {
         const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
-        addFunctionBtn.disabled = selectedConnectors.length < 2;
+        
+        addFunctionBtn.disabled = true; // Disable by default
+        if (selectedConnectors.length >= 2) addFunctionBtn.disabled = false;
+
         rotateBtn.disabled = selectedElements.length === 0;
 
         // Update modal buttons based on selection
-        const isExactlyTwo = selectedConnectors.length === 2;
-        funcCoilBtn.disabled = !isExactlyTwo;
-        funcAContactBtn.disabled = !isExactlyTwo;
-        funcBContactBtn.disabled = !isExactlyTwo;
+        const isExactlyTwoConnectors = selectedConnectors.length === 2;
+        funcCoilBtn.disabled = !isExactlyTwoConnectors;
+        funcAContactBtn.disabled = !isExactlyTwoConnectors;
+        funcBContactBtn.disabled = !isExactlyTwoConnectors;
         funcConductiveBtn.disabled = selectedConnectors.length < 2;
+        const canSetTimedContact = isExactlyTwoConnectors && drawingElements.some(el => el.type === 'knob');
+        funcTimedAContactBtn.disabled = !canSetTimedContact;
+        funcTimedBContactBtn.disabled = !canSetTimedContact;
     }
 
     const snapToIntersection = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
@@ -340,6 +427,7 @@
         if (resizingElement && getHandleAtPos(worldX, worldY, resizingElement)) return resizingElement;
         
         return [...drawingElements].reverse().find(el => {
+            const dist = Math.hypot(el.x - worldX, el.y - worldY);
             switch(el.type) {
                 case 'rect': {
                     const tolerance = 5 / scale;
@@ -350,15 +438,17 @@
                     return !isInsideInner;
                 }
                 case 'circle': {
-                    const dist = Math.hypot(el.x - worldX, el.y - worldY);
                     const tolerance = 5 / scale;
                     return Math.abs(dist - el.radius) < tolerance;
+                }
+                case 'knob': {
+                    return dist < el.radius + (5 / scale);
                 }
                 case 'text': 
                     ctx.font = el.font || '16px sans-serif';
                     const textHeight = parseInt(ctx.font) * 1.2;
                     return worldX >= el.x && worldX <= el.x + ctx.measureText(el.content).width && worldY >= el.y && worldY <= el.y + textHeight;
-                case 'connector': return Math.hypot(el.x - worldX, el.y - worldY) < 10 / scale;
+                case 'connector': return dist < 10 / scale;
                 case 'line': return pDistance(worldX, worldY, el.x1, el.y1, el.x2, el.y2) < 5 / scale;
             }
             return false;
@@ -398,14 +488,25 @@
                 resizingElement = null;
             } else { selectedElements = [resizingElement]; }
         }
+        
+        const clickedElement = getElementAtPos(startPos.x, startPos.y);
 
-        if (['line', 'rect', 'circle'].includes(activeTool)) {
+        if (activeTool === 'select' && clickedElement && clickedElement.type === 'knob') {
+            const dist = Math.hypot(worldPos.x - clickedElement.x, worldPos.y - clickedElement.y);
+            const handleRadius = 12.5 / scale;
+            if (dist < handleRadius) {
+                isAdjustingKnob = true;
+                adjustingKnob = clickedElement;
+                return; // Prevent dragging or selecting
+            }
+        }
+
+        if (['line', 'rect', 'circle', 'knob'].includes(activeTool)) {
             isDrawing = true; 
             if (activeTool === 'rect') { startPos.x = snapToIntersection(startPos.x); startPos.y = snapToIntersection(startPos.y); } 
-            else if (activeTool === 'circle') { startPos.x = snapToQuarterGrid(startPos.x); startPos.y = snapToQuarterGrid(startPos.y); }
+            else if (['circle', 'knob'].includes(activeTool)) { startPos.x = snapToQuarterGrid(startPos.x); startPos.y = snapToQuarterGrid(startPos.y); }
             currentPos = { ...startPos };
         } else if (activeTool === 'select') {
-            const clickedElement = getElementAtPos(startPos.x, startPos.y);
             if (clickedElement) {
                 if (e.shiftKey) { const index = selectedElements.indexOf(clickedElement); if (index > -1) selectedElements.splice(index, 1); else selectedElements.push(clickedElement); } 
                 else if (!selectedElements.includes(clickedElement)) { selectedElements = [clickedElement]; }
@@ -435,7 +536,27 @@
         currentPos = worldPos;
         let needsRedraw = false, newCursor = 'default';
 
-        if (isResizing && resizingElement) {
+        if (isAdjustingKnob) {
+            const knob = adjustingKnob;
+            const dy = currentPos.y - knob.y;
+            const dx = currentPos.x - knob.x;
+            let angle = Math.atan2(dy, dx);
+            
+            const startAngle = (3 / 4) * Math.PI; // 135 deg
+            const endAngle = (9 / 4) * Math.PI;   // 405 deg
+
+            if (angle < 0) angle += 2 * Math.PI;
+            
+            // Clamp angle to the allowed range
+            const clampedAngle = Math.max(startAngle, Math.min(angle, endAngle));
+            
+            const totalAngle = endAngle - startAngle;
+            const valueRatio = (clampedAngle - startAngle) / totalAngle;
+            
+            knob.value = Math.round(valueRatio * knob.maxValue); // Round to integer
+            needsRedraw = true;
+        }
+        else if (isResizing && resizingElement) {
             const dx = currentPos.x - dragOffset.x, dy = currentPos.y - dragOffset.y;
             const originalRect = dragStartPositions.get(resizingElement);
             let { x, y, width, height } = originalRect;
@@ -482,11 +603,11 @@
     
     canvas.addEventListener('mouseup', e => {
         if (e.button === 1 && isPanning) {
-            isPanning = false;
-            canvas.style.cursor = 'default';
-            return;
+            isPanning = false; canvas.style.cursor = 'default'; return;
         }
-
+        if (isAdjustingKnob) {
+            isAdjustingKnob = false; adjustingKnob = null; return;
+        }
         if (isResizing) {
             isResizing = false; resizeHandle = null;
             if (resizingElement.width < 0) { resizingElement.x += resizingElement.width; resizingElement.width *= -1; }
@@ -497,14 +618,18 @@
             isDrawing = false;
             if (activeTool === 'line') {
                 const s = {x: snapToHalfGrid(startPos.x), y: snapToHalfGrid(startPos.y) }, c = {x: snapToHalfGrid(currentPos.x), y: snapToHalfGrid(currentPos.y) };
-                drawingElements.push({ id: ++elementIdCounter, type: 'line', x1: s.x, y1: s.y, x2: c.x, y2: c.y });
+                if (Math.hypot(s.x-c.x, s.y-c.y) > 0) drawingElements.push({ id: ++elementIdCounter, type: 'line', x1: s.x, y1: s.y, x2: c.x, y2: c.y });
             } else if (activeTool === 'rect') {
                 const rect = getMarqueeRect();
                 if (rect.width > 0 && rect.height > 0) drawingElements.push({ id: ++elementIdCounter, type: 'rect', ...rect });
-            } else if (activeTool === 'circle') {
+            } else if (activeTool === 'circle' || activeTool === 'knob') {
                 const radius = snapToQuarterGrid(Math.hypot(currentPos.x - startPos.x, currentPos.y - startPos.y));
                 if (radius > 0) {
-                    drawingElements.push({ id: ++elementIdCounter, type: 'circle', x: startPos.x, y: startPos.y, radius: radius });
+                     if (activeTool === 'circle') {
+                        drawingElements.push({ id: ++elementIdCounter, type: 'circle', x: startPos.x, y: startPos.y, radius: radius });
+                     } else { // Knob
+                        drawingElements.push({ id: ++elementIdCounter, type: 'knob', x: startPos.x, y: startPos.y, radius: radius, value: 0, maxValue: 10 });
+                     }
                 }
             }
         } else if (isDragging) { isDragging = false; dragStartPositions.clear();
@@ -514,7 +639,7 @@
             drawingElements.filter(el => {
                 let elBox;
                 if(el.type === 'line') elBox = { x: Math.min(el.x1, el.x2), y: Math.min(el.y1, el.y2), width: Math.abs(el.x1-el.x2), height: Math.abs(el.y1-el.y2) }
-                else if (el.type === 'circle') elBox = { x: el.x - el.radius, y: el.y - el.radius, width: el.radius * 2, height: el.radius * 2 }
+                else if (el.type === 'circle' || el.type === 'knob') elBox = { x: el.x - el.radius, y: el.y - el.radius, width: el.radius * 2, height: el.radius * 2 }
                 else { const textWidth = el.type === 'text' ? ctx.measureText(el.content).width : (el.width || 0); elBox = { x: el.x, y: el.y, width: textWidth, height: el.height || 16} }
                 return marquee.x < elBox.x + elBox.width && marquee.x + marquee.width > elBox.x && marquee.y < elBox.y + elBox.height && marquee.y + marquee.height > elBox.y;
             }).forEach(el => !selectedElements.includes(el) && selectedElements.push(el));
@@ -523,7 +648,7 @@
     });
     
     canvas.addEventListener('click', e => {
-         if (isDragging || isMarqueeSelecting || isDrawing || e.detail > 1 || isResizing) return;
+         if (isDragging || isMarqueeSelecting || isDrawing || e.detail > 1 || isResizing || isAdjustingKnob) return;
          const clickPos = screenToWorld(e.offsetX, e.offsetY);
          if (activeTool === 'text') {
             const pos = {x: snapToHalfGrid(clickPos.x), y: snapToHalfGrid(clickPos.y)};
@@ -559,6 +684,15 @@
             const newLabel = prompt('請輸入接點標籤:', el.label);
             if (newLabel !== null) { el.label = newLabel.trim(); draw(); }
         } else if (el.type === 'rect') { resizingElement = el; selectedElements = []; draw(); }
+        else if (el.type === 'knob') {
+            const newMax = prompt('請輸入旋鈕最大值:', el.maxValue);
+            const parsedMax = parseInt(newMax);
+            if (!isNaN(parsedMax) && parsedMax > 0) {
+                el.maxValue = parsedMax;
+                if (el.value > el.maxValue) el.value = el.maxValue;
+                draw();
+            }
+        }
     });
 
     canvas.addEventListener('wheel', e => {
@@ -620,7 +754,7 @@
         selectedElements.forEach(el => {
             if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); maxX = Math.max(maxX, el.x1, el.x2); maxY = Math.max(maxY, el.y1, el.y2); } 
             else if (el.type === 'rect') { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height); } 
-            else if (el.type === 'circle') { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); }
+            else if (['circle', 'knob'].includes(el.type)) { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); }
             else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x); maxY = Math.max(maxY, el.y); }
         });
 
@@ -628,7 +762,7 @@
         const rotatePoint = (x, y, ox, oy) => ({ x: ox - (y - oy), y: oy + (x - ox) });
 
         selectedElements.forEach(el => {
-            if (el.type === 'connector' || el.type === 'text' || el.type === 'circle') { const newPos = rotatePoint(el.x, el.y, pivotX, pivotY); el.x = snapToHalfGrid(newPos.x); el.y = snapToHalfGrid(newPos.y); } 
+            if (['connector', 'text', 'circle', 'knob'].includes(el.type)) { const newPos = rotatePoint(el.x, el.y, pivotX, pivotY); el.x = snapToHalfGrid(newPos.x); el.y = snapToHalfGrid(newPos.y); } 
             else if (el.type === 'line') { const newP1 = rotatePoint(el.x1, el.y1, pivotX, pivotY); const newP2 = rotatePoint(el.x2, el.y2, pivotX, pivotY); el.x1 = snapToHalfGrid(newP1.x); el.y1 = snapToHalfGrid(newP1.y); el.x2 = snapToHalfGrid(newP2.x); el.y2 = snapToHalfGrid(newP2.y); } 
             else if (el.type === 'rect') { const newCenter = rotatePoint(el.x + el.width / 2, el.y + el.height / 2, pivotX, pivotY); const oldWidth = el.width; el.width = el.height; el.height = oldWidth; el.x = snapToHalfGrid(newCenter.x - el.width / 2); el.y = snapToHalfGrid(newCenter.y - el.height / 2); }
         });
@@ -637,11 +771,18 @@
     
     function addFunction(type) {
         const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
-        if (selectedConnectors.length < 2) return;
-
-        const selectedIds = selectedConnectors.map(c => c.id).sort((a, b) => a - b);
         
-        if (type === '相通') {
+        const isTimed = type.startsWith('timed-');
+        
+        if (isTimed) {
+            if (selectedConnectors.length !== 2) return;
+            const firstKnob = drawingElements.find(el => el.type === 'knob');
+            if (!firstKnob) return; // Button should be disabled anyway
+            const connectorIds = selectedConnectors.map(c => c.id).sort((a,b) => a-b);
+            componentFunctions.push({ type, connectors: connectorIds, knobId: firstKnob.id });
+        } else if (type === '相通') {
+             if (selectedConnectors.length < 2) return;
+             const selectedIds = selectedConnectors.map(c => c.id);
              let groupsToMerge = [], remainingFunctions = [];
              const idSet = new Set(selectedIds);
              componentFunctions.forEach(func => {
@@ -654,9 +795,9 @@
              const mergedIds = new Set(selectedIds);
              groupsToMerge.forEach(group => group.connectors.forEach(id => mergedIds.add(id)));
              componentFunctions = [...remainingFunctions, { type: '相通', connectors: Array.from(mergedIds).sort((a, b) => a - b) }];
-        } else {
-            if (selectedIds.length !== 2) return;
-             // For relay functions, just add them. They can overlap.
+        } else { // coil, a-contact, b-contact
+            if (selectedConnectors.length !== 2) return;
+            const selectedIds = selectedConnectors.map(c => c.id).sort((a,b)=>a-b);
             componentFunctions.push({ type, connectors: selectedIds });
         }
 
@@ -670,6 +811,8 @@
     funcCoilBtn.addEventListener('click', () => addFunction('coil'));
     funcAContactBtn.addEventListener('click', () => addFunction('a-contact'));
     funcBContactBtn.addEventListener('click', () => addFunction('b-contact'));
+    funcTimedAContactBtn.addEventListener('click', () => addFunction('timed-a-contact'));
+    funcTimedBContactBtn.addEventListener('click', () => addFunction('timed-b-contact'));
 
 
     window.addEventListener('click', (e) => {
@@ -682,7 +825,7 @@
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || editingTextElement) return;
 
         if (e.key === 'Escape') {
-            if (['line', 'rect', 'circle', 'text', 'connector', 'delete'].includes(activeTool)) {
+            if (['line', 'rect', 'circle', 'knob', 'text', 'connector', 'delete'].includes(activeTool)) {
                  setActiveTool('select');
             }
         }
@@ -701,21 +844,17 @@
         if (drawingElements.length === 0) { codeArea.value = "畫布上沒有任何元件可供輸出。"; return; }
         let minX = Infinity, minY = Infinity;
         drawingElements.forEach(el => { 
-            if (el.type === 'line') {
-                minX = Math.min(minX, el.x1, el.x2); 
-                minY = Math.min(minY, el.y1, el.y2);
-            } else if (el.type === 'circle') {
-                minX = Math.min(minX, el.x - el.radius);
-                minY = Math.min(minY, el.y - el.radius);
-            } else {
-                minX = Math.min(minX, el.x); 
-                minY = Math.min(minY, el.y); 
-            }
+            if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); } 
+            else if (['circle', 'knob'].includes(el.type)) { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); } 
+            else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); }
         });
 
         const connectors = drawingElements.filter(el => el.type === 'connector');
+        const knobs = drawingElements.filter(el => el.type === 'knob');
         const connectorIdToLabel = new Map(); let tempConnectorCount = 1;
         connectors.forEach(c => connectorIdToLabel.set(c.id, c.label || `C${tempConnectorCount++}`));
+        const knobIdToName = new Map(); let tempKnobCount = 1;
+        knobs.forEach(k => knobIdToName.set(k.id, `knob${tempKnobCount++}`));
         
         const dataBlock = `/* --- MAKER DATA ---\n${JSON.stringify({ drawingElements, componentFunctions }, null, 2)}\n--- END MAKER DATA --- */`;
         
@@ -724,35 +863,188 @@
             const gets = labels.map(l => `const ${prefix}_${l}=this.getConnectorByPole('${l}');`).join('');
             const allConnectors = `[${labels.map(l => `${prefix}_${l}`).join(',')}]`;
             const potentialChecks = labels.map(l => `${prefix}_${l}.potential`).join(',');
-            return `{${gets} if(${allConnectors}.every(c=>c)){const maxPotential=Math.max(${potentialChecks});if(maxPotential>0){${allConnectors}.forEach(c=>c.potential=maxPotential);}}}`;
+            return `{${gets} if(${allConnectors}.every(c=>c)){const potentials=[${potentialChecks}].filter(p=>p>0); const maxPotential=potentials.length>0?Math.max(...potentials):0; if(maxPotential>0){${allConnectors}.forEach(c=>c.potential=maxPotential);}}}`;
         };
         
-        let logicCode = `updateLogic() {
-    this.isEnergized = this.isEnergized ?? false;
-    // --- Relay Logic: Determine if coil is energized ---
-    let isEnergized = false;
-    ${componentFunctions.filter(f => f.type === 'coil').map(func => {
-        const labels = func.connectors.map(id => connectorIdToLabel.get(id)).filter(Boolean);
-        if (labels.length !== 2) return '';
-        const [l1, l2] = labels;
-        return `const coil_c1 = this.getConnectorByPole('${l1}'); const coil_c2 = this.getConnectorByPole('${l2}'); if (coil_c1 && coil_c2 && coil_c1.potential !== coil_c2.potential) { isEnergized = true; }`;
-    }).join('')}
-    this.isEnergized = isEnergized;
+        let logicCode = `
+    // This method is called by the simulation engine on every frame.
+    updateLogic(deltaTime) {
+        // --- Coil Energization Logic ---
+        let isEnergizedCurrentFrame = false;
+        ${componentFunctions.filter(f => f.type === 'coil').map(func => {
+            const labels = func.connectors.map(id => connectorIdToLabel.get(id)).filter(Boolean);
+            if (labels.length !== 2) return '';
+            const [l1, l2] = labels;
+            return `const coil_c1 = this.getConnectorByPole('${l1}'); const coil_c2 = this.getConnectorByPole('${l2}'); if (coil_c1 && coil_c2 && coil_c1.potential !== coil_c2.potential) { isEnergizedCurrentFrame = true; }`;
+        }).join('\n        ')}
+        
+        const wasEnergized = this.isEnergized;
+        this.isEnergized = isEnergizedCurrentFrame;
 
-    // --- A-Contact Logic (Normally Open) ---
-    if (this.isEnergized) {
-        ${componentFunctions.filter(f => f.type === 'a-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'ac')).join('')}
+        // --- Timer Logic ---
+        ${componentFunctions.filter(f => f.type.startsWith('timed-')).map(func => {
+            const timerName = `timer_${func.knobId}`;
+            const knobName = knobIdToName.get(func.knobId);
+            return `
+        if (this.isEnergized) {
+            if (!wasEnergized) { // Just turned on
+                this.timers.${timerName}.active = true;
+                this.timers.${timerName}.delay = this.knobs.${knobName}.value * 1000;
+                this.timers.${timerName}.elapsed = 0;
+            }
+            if(this.timers.${timerName}.active) {
+                this.timers.${timerName}.elapsed += deltaTime;
+            }
+        } else {
+            this.timers.${timerName}.active = false;
+            this.timers.${timerName}.elapsed = 0;
+        }`;
+        }).join('')}
+
+        // --- Contact Logic ---
+        // Instantaneous A-Contact (NO)
+        if (this.isEnergized) {
+            ${componentFunctions.filter(f => f.type === 'a-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'ac')).join('\n            ')}
+        }
+        // Instantaneous B-Contact (NC)
+        if (!this.isEnergized) {
+             ${componentFunctions.filter(f => f.type === 'b-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'bc')).join('\n            ')}
+        }
+        // Timed A-Contact (NO-T)
+        ${componentFunctions.filter(f => f.type === 'timed-a-contact').map(func => {
+            const timerName = `timer_${func.knobId}`;
+            return `if (this.timers.${timerName}.active && this.timers.${timerName}.elapsed >= this.timers.${timerName}.delay) {
+            ${connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), `tac`)}
+        }`;
+        }).join('\n        ')}
+        // Timed B-Contact (NC-T)
+        ${componentFunctions.filter(f => f.type === 'timed-b-contact').map(func => {
+            const timerName = `timer_${func.knobId}`;
+            return `if (!this.isEnergized || (this.isEnergized && this.timers.${timerName}.elapsed < this.timers.${timerName}.delay)) {
+            ${connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), `tbc`)}
+        }`;
+        }).join('\n        ')}
+        // Simple Conductive Logic
+        ${componentFunctions.filter(f => f.type === '相通').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'cond')).join('\n        ')}
+    }`;
+        const drawCode = `draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized; ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX; const relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'circle': return `ctx.beginPath();ctx.arc(this.x+${relX},this.y+${relY},${el.radius},0,Math.PI*2);ctx.stroke();`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; case 'knob': const kName=knobIdToName.get(el.id); return `this.drawKnob(ctx, this.x+${relX}, this.y+${relY}, ${el.radius}, this.knobs.${kName}.value, this.knobs.${kName}.maxValue);`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); }`;
+
+        let fullClassCode = `${dataBlock}\n
+class CustomComponent extends Component { 
+    static instanceCount=0; 
+    constructor(x,y){
+        super(x,y,'customComponent');
+        this.instanceNumber=++CustomComponent.instanceCount;
+        this.isEnergized=false;
+        this.knobs = {
+            ${knobs.map(k => {
+                const kName = knobIdToName.get(k.id);
+                return `'${kName}': { value: ${k.value}, maxValue: ${k.maxValue}, x: ${k.x-minX}, y: ${k.y-minY}, radius: ${k.radius} }`;
+            }).join(',\n            ')}
+        };
+        this.timers = {
+            ${componentFunctions.filter(f => f.type.startsWith('timed-')).map(func => {
+                const timerName = `timer_${func.knobId}`;
+                return `'${timerName}': { active: false, elapsed: 0, delay: 0 }`;
+            }).filter((v,i,a) => a.indexOf(v)===i).join(',\n            ')}
+        };
+        this.adjustingKnob = null;
+
+        this._updateDimensions();
+        this._rebuildConnectors();
+    } 
+
+    _updateDimensions(){
+        let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+        const elements=${JSON.stringify(drawingElements)};
+        if(elements.length===0){this.width=0;this.height=0;return}
+        elements.forEach(el=>{ 
+            if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); maxX = Math.max(maxX, el.x1, el.x2); maxY = Math.max(maxY, el.y1, el.y2); } 
+            else if (el.type === 'rect') { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height); } 
+            else if (['circle', 'knob'].includes(el.type)) { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); } 
+            else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x); maxY = Math.max(maxY, el.y); } 
+        });
+        this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};
+        this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};
+    } 
+
+    getConnectorByPole(pole){ return this.connectors.find(c=>c.pole===pole); } 
+
+    _rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}} 
+    
+    drawKnob(ctx, x, y, radius, value, maxValue) {
+        const startAngle = (3 / 4) * Math.PI;
+        const endAngle = (9 / 4) * Math.PI;
+        
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, radius, startAngle, endAngle);
+        ctx.stroke();
+
+        const handleRadius = 12.5;
+        ctx.beginPath();
+        ctx.arc(x, y, handleRadius, 0, 2 * Math.PI);
+        ctx.fillStyle = '#a0aec0';
+        ctx.fill();
+        
+        const totalAngle = endAngle - startAngle;
+        const valueRatio = value / maxValue;
+        const pointerAngle = startAngle + valueRatio * totalAngle;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + handleRadius * Math.cos(pointerAngle), y + handleRadius * Math.sin(pointerAngle));
+        ctx.stroke();
+
+        ctx.font = \`\${Math.min(14, radius * 0.8)}px sans-serif\`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(value.toFixed(0), x, y - radius - 10);
+        ctx.restore();
     }
-    // --- B-Contact Logic (Normally Closed) ---
-    if (!this.isEnergized) {
-        ${componentFunctions.filter(f => f.type === 'b-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'bc')).join('')}
+
+    ${drawCode} 
+
+    ${logicCode}
+
+    // --- Interaction Logic (for simulation environment) ---
+    onMouseDown(localX, localY) {
+        for (const key in this.knobs) {
+            const knob = this.knobs[key];
+            const dist = Math.hypot(localX - (knob.x + this.x), localY - (knob.y + this.y));
+            if (dist < 12.5) { // Click on handle
+                this.adjustingKnob = key;
+                return true; // Event handled
+            }
+        }
+        return false;
     }
-    // --- Simple Conductive Logic ---
-    ${componentFunctions.filter(f => f.type === '相通').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'cond')).join('')}
+
+    onMouseMove(localX, localY) {
+        if (!this.adjustingKnob) return false;
+        const knob = this.knobs[this.adjustingKnob];
+        const dy = localY - (knob.y + this.y);
+        const dx = localX - (knob.x + this.x);
+        let angle = Math.atan2(dy, dx);
+        
+        const startAngle = (3 / 4) * Math.PI;
+        const endAngle = (9 / 4) * Math.PI;
+
+        if (angle < startAngle - Math.PI) { angle += 2 * Math.PI; }
+        
+        const clampedAngle = Math.max(startAngle, Math.min(angle, endAngle));
+        const totalAngle = endAngle - startAngle;
+        const valueRatio = (clampedAngle - startAngle) / totalAngle;
+        
+        knob.value = Math.round(valueRatio * knob.maxValue);
+        return true;
+    }
+
+    onMouseUp() {
+        if (!this.adjustingKnob) return false;
+        this.adjustingKnob = null;
+        return true;
+    }
 }`;
-        const drawCode = `draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized; ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX; const relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'circle': return `ctx.beginPath();ctx.arc(this.x+${relX},this.y+${relY},${el.radius},0,Math.PI*2);ctx.stroke();`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); }`;
-
-        let fullClassCode = `${dataBlock}\n\nclass CustomComponent extends Component { static instanceCount=0; constructor(x,y){super(x,y,'customComponent');this.instanceNumber=++CustomComponent.instanceCount;this.isEnergized=false;this._updateDimensions();this._rebuildConnectors();} _updateDimensions(){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;const elements=${JSON.stringify(drawingElements)};if(elements.length===0){this.width=0;this.height=0;return}elements.forEach(el=>{ if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); maxX = Math.max(maxX, el.x1, el.x2); maxY = Math.max(maxY, el.y1, el.y2); } else if (el.type === 'rect') { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height); } else if (el.type === 'circle') { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); } else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x); maxY = Math.max(maxY, el.y); } });this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};} getConnectorByPole(pole){return this.connectors.find(c=>c.pole===pole);} _rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}} ${drawCode} ${logicCode} toggle(){console.log('Toggled!')}}`;
         codeArea.value = fullClassCode;
 
         try { codeArea.focus(); codeArea.select(); const successful = document.execCommand('copy'); const originalText = exportBtn.innerHTML; if (successful) { exportBtn.innerHTML = '✅ 已複製!'; } else { exportBtn.innerHTML = '❌ 複製失敗'; } setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); } catch (err) { console.error('複製時發生錯誤:', err); const originalText = exportBtn.innerHTML; exportBtn.innerHTML = '❌ 複製失敗'; setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); }
