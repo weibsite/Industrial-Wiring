@@ -57,6 +57,17 @@ canvas {
     animation: rotate-arrow 2s linear infinite;
 }
 
+.rename-input {
+    position: absolute;
+    background-color: #1a202c; /* bg-gray-900 */
+    color: #edf2f7; /* text-gray-200 */
+    border: 1px solid #4a5568; /* border-gray-600 */
+    text-align: center;
+    padding: 0;
+    margin: 0;
+    z-index: 100;
+    box-sizing: border-box;
+}
 
 @media (max-width: 768px) {
     .desktop-text { display: none; }

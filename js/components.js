@@ -1,13 +1,20 @@
 // --- COMPONENT CLASSES ---
 class Component {
-    constructor(x, y, type) { this.id = generateId(); this.x = snapToGrid(x); this.y = snapToGrid(y); this.type = type; this.width = 0; this.height = 0; this.connectors = []; this.isPowered = false; }
+    constructor(x, y, type) { this.id = generateId(); this.x = snapToGrid(x); this.y = snapToGrid(y); this.type = type; this.width = 0; this.height = 0; this.connectors = []; this.isPowered = false; this.name = ''; }
     setPoles(poleType) { this.poleType = poleType; this._updateDimensions(); this._rebuildConnectors(); }
     setRelayType(type) { this.relayType = type; this._updateDimensions(); this._rebuildConnectors(); }
     setMotorType(type) { this.motorType = type; this._updateDimensions(); this._rebuildConnectors(); }
+    setVariant(poleType, orientation) { if(typeof this._updateFromVariant === 'function') this._updateFromVariant(poleType, orientation); }
     updatePosition(newX, newY) {
+        const dx = newX - this.x;
+        const dy = newY - this.y;
         this.x = newX;
         this.y = newY;
-        this._rebuildConnectors(); // This updates the connector positions
+        
+        if (typeof this._rebuildConnectors === 'function') {
+            this._rebuildConnectors();
+        }
+
         wires.forEach(wire => {
             let segmentUpdated = false;
             if (wire.start.parent.id === this.id) {
@@ -40,7 +47,13 @@ class Component {
             }
         });
     }
-    setSwitchType(type) { this.switchType = type; this.isPressed = false; this.position = 1; this._updateDimensions(); this._rebuildConnectors(); }
+    setSwitchType(type) { 
+        this.switchType = type;
+        this.isPressed = false;
+        this.position = 1;
+        this._updateDimensions();
+        this._rebuildConnectors();
+    }
     draw(ctx) { throw new Error("Draw method must be implemented"); }
     isUnderMouse(mx, my) { return mx >= this.x && mx <= this.x + this.width && my >= this.y && my <= this.y + this.height; }
     getConnectorAt(mx, my) { for (const conn of this.connectors) { if (Math.hypot(conn.x - mx, conn.y - my) < GRID_SIZE / 2) return conn; } return null; }
@@ -50,7 +63,7 @@ class Component {
 }
 
 class NFB extends Component {
-    constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = false; this._updateDimensions(); this._rebuildConnectors(); }
+    constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = false; this.name = ''; this._updateDimensions(); this._rebuildConnectors(); }
     _updateDimensions() {
         let poleCount = 0;
         if (this.poleType === '1P') poleCount = 1;
@@ -90,16 +103,26 @@ class NFB extends Component {
         });
     }
     toggle() { this.isOn = !this.isOn; }
+    getNamePosition() {
+        const fontSize = GRID_SIZE * 0.7;
+        const textWidth = (this.name || 'NFB').length * fontSize * 0.7;
+        return {
+            x: this.x + this.width / 2 - textWidth / 2,
+            y: this.y + GRID_SIZE * 0.7 - fontSize / 2,
+            width: textWidth + 10,
+            height: fontSize + 4,
+            value: this.name,
+            fontSize: fontSize
+        };
+    }
     draw(ctx) {
         const baseIsPowered = this.connectors.some(c => c.potential !== 0);
         ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
         ctx.lineWidth = 2; ctx.strokeRect(this.x, this.y, this.width, this.height);
-        ctx.fillStyle = ctx.strokeStyle; ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('NFB', this.x + this.width / 2, this.y + GRID_SIZE * 0.7);
-        ctx.fillText(this.poleType, this.x + this.width / 2, this.y + GRID_SIZE * 1.7);
-
+        
         this.connectors.filter(c => c.type !== 'output').forEach(c => {
              ctx.fillStyle = '#a0aec0';
+             ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
              ctx.fillText(c.pole, c.x, this.y + GRID_SIZE * 2.8);
              const startY = this.y + GRID_SIZE * 3.5; const endY = this.y + this.height - GRID_SIZE;
 
@@ -121,6 +144,12 @@ class NFB extends Component {
              ctx.stroke();
         });
 
+        // --- Text drawn last for visibility ---
+        ctx.fillStyle = ctx.strokeStyle; ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const displayName = this.name || 'NFB';
+        ctx.fillText(displayName, this.x + this.width / 2, this.y + GRID_SIZE * 0.7);
+        ctx.fillText(this.poleType, this.x + this.width / 2, this.y + GRID_SIZE * 1.7);
+        
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
         });
@@ -133,6 +162,7 @@ class Bulb extends Component {
         this.width = GRID_SIZE * 2;
         this.height = GRID_SIZE * 2;
         this.colorIndex = colorIndex;
+        this.displayName = ''; // 用於顯示 PL1, PL2...
         this._updateColor();
         this._rebuildConnectors();
     }
@@ -142,8 +172,33 @@ class Bulb extends Component {
             { id: `${this.id}-1`, parent: this, x: this.x + this.width / 2, y: this.y + this.height, potential: 0 }
         ];
     }
-    _updateColor() { const c = bulbColors[this.colorIndex]; this.color = c.color; this.label = c.label; }
+    // name 屬性 (RL, YL) 用於內部顏色邏輯
+    _updateColor() { const c = bulbColors[this.colorIndex]; this.color = c.color; this.name = c.label; }
     cycleColor() { this.colorIndex = (this.colorIndex + 1) % bulbColors.length; this._updateColor(); }
+    setName(newName) {
+        const newColor = bulbColors.find(c => c.label.toLowerCase() === newName.toLowerCase());
+        if (newColor) {
+            this.color = newColor.color;
+            this.name = newColor.label;
+            this.colorIndex = bulbColors.findIndex(c => c.label === newColor.label);
+        } else {
+             // 如果輸入的不是顏色代碼，則更新顯示名稱
+            this.displayName = newName.toUpperCase();
+        }
+    }
+    getNamePosition() {
+        const textToDisplay = this.displayName || this.name;
+        const fontSize = GRID_SIZE * 0.9;
+        const textWidth = textToDisplay.length * fontSize * 0.6;
+        return {
+            x: this.x + this.width / 2 - textWidth / 2,
+            y: this.y + this.height / 2 - fontSize / 2,
+            width: textWidth,
+            height: fontSize,
+            value: textToDisplay,
+            fontSize: fontSize
+        };
+    }
     draw(ctx) {
         this.isPowered = (this.connectors[0].potential === 1 && this.connectors[1].potential === -1) || (this.connectors[0].potential === -1 && this.connectors[1].potential === 1);
         ctx.strokeStyle = this.isPowered ? this.color : '#a0aec0'; ctx.lineWidth = 2;
@@ -159,20 +214,22 @@ class Bulb extends Component {
             ctx.shadowColor = this.color;
         }
         ctx.stroke();
-
-        ctx.fillStyle = this.isPowered ? 'black' : this.color;
-        ctx.font = `${GRID_SIZE*0.9}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(this.label, this.x + this.width / 2, this.y + this.height / 2);
         ctx.shadowBlur = 0;
 
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
         });
+
+        // --- Text drawn last for visibility ---
+        const textToDisplay = this.displayName || this.name; // 優先顯示 displayName (PL1)
+        ctx.fillStyle = this.isPowered ? 'black' : this.color;
+        ctx.font = `${GRID_SIZE*0.9}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(textToDisplay, this.x + this.width / 2, this.y + this.height / 2);
     }
 }
 
 class Switch extends Component {
-    constructor(x, y) { super(x, y, 'switch'); this.switchType = 'pushbutton_no'; this.isPressed = false; this.position = 1; this._updateDimensions(); this._rebuildConnectors(); }
+    constructor(x, y) { super(x, y, 'switch'); this.switchType = 'pushbutton_no'; this.isPressed = false; this.position = 1; this.name = ''; this._updateDimensions(); this._rebuildConnectors(); }
     _updateDimensions() {
         if (this.switchType.startsWith('pushbutton')) {
             this.width = GRID_SIZE * 2;
@@ -207,6 +264,18 @@ class Switch extends Component {
     }
     press() { if (this.switchType.startsWith('pushbutton')) this.isPressed = true; }
     release() { if (this.switchType.startsWith('pushbutton')) this.isPressed = false; }
+    getNamePosition() {
+        const fontSize = GRID_SIZE * 0.7;
+        const textWidth = (this.name || '按鈕').length * fontSize * 0.7;
+         return {
+            x: this.x + this.width / 2 - textWidth / 2,
+            y: this.y + GRID_SIZE * 0.7 - fontSize / 2,
+            width: textWidth + 10,
+            height: fontSize + 4,
+            value: this.name,
+            fontSize: fontSize
+        };
+    }
     draw(ctx) {
         const baseIsPowered = this.connectors.some(c => c.potential !== 0);
         ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
@@ -232,10 +301,6 @@ class Switch extends Component {
         });
     }
     _drawPushButton(ctx) {
-        ctx.fillText('按鈕', this.x + this.width/2, this.y + GRID_SIZE * 0.7);
-        const typeLabel = this.switchType.endsWith('no') ? 'NO' : 'NC';
-        ctx.fillText(typeLabel, this.x + this.width / 2, this.y + this.height - GRID_SIZE * 0.5);
-
         const cX = this.x + this.width / 2;
         const midY = this.y + this.height / 2;
 
@@ -249,10 +314,16 @@ class Switch extends Component {
         if (isClosed) { ctx.moveTo(cX, midY - 5); ctx.lineTo(cX, midY + 5); }
         else { ctx.moveTo(cX, midY - 5); ctx.lineTo(cX + 8, midY - 2); }
         ctx.stroke();
+
+        // --- Text drawn last for visibility ---
+        ctx.fillStyle = this.connectors.some(c => c.potential !== 0) ? '#f6e05e' : '#a0aec0';
+        ctx.fillText(this.name || '按鈕', this.x + this.width/2, this.y + GRID_SIZE * 0.7);
+        const typeLabel = this.switchType.endsWith('no') ? 'NO' : 'NC';
+        ctx.fillText(typeLabel, this.x + this.width / 2, this.y + this.height - GRID_SIZE * 0.5);
     }
     _drawRotarySwitch(ctx) {
         ctx.fillStyle = this.connectors.some(c => c.potential !== 0) ? '#f6e05e' : '#a0aec0';
-        ctx.fillText('旋轉', this.x + this.width/2, this.y + GRID_SIZE * 0.7);
+        ctx.fillText(this.name, this.x + this.width/2, this.y + GRID_SIZE * 0.7);
 
         const cX = this.x + this.width / 2;
         const cY = this.y + this.height / 2;
@@ -285,7 +356,7 @@ class Switch extends Component {
 class MagneticContactor extends Component {
     constructor(x, y) {
         super(x, y, 'contactor');
-        this.name = 'MC' + getNextContactorNumber();
+        this.name = '';
         this.coilEnergized = false;
         this.hasLeftAux = false;
         this._updateDimensions();
@@ -332,6 +403,19 @@ class MagneticContactor extends Component {
             this.connectors.push({ id: `${this.id}-aux-left-no-out`, parent: this, x: this.x + GRID_SIZE * 2, y: mainOutY, type: 'aux-left-no-out', potential: 0 });
         }
     }
+    getNamePosition() {
+        const fontSize = GRID_SIZE * 0.8;
+        const textWidth = (this.name || '').length * fontSize * 0.7 + 10;
+        const textX = this.x - GRID_SIZE * 0.5; // Right aligned here
+        return {
+            x: textX - textWidth,
+            y: this.y + this.height / 2 - fontSize / 2,
+            width: textWidth,
+            height: fontSize,
+            value: this.name,
+            fontSize: fontSize
+        };
+    }
     draw(ctx) {
         const a1 = this.connectors.find(c=>c.id===`${this.id}-A1`);
         const a2 = this.connectors.find(c=>c.id===`${this.id}-A2`);
@@ -345,12 +429,6 @@ class MagneticContactor extends Component {
         const mainBoxY = this.y + GRID_SIZE;
         const mainBoxHeight = GRID_SIZE * 5;
         ctx.strokeRect(this.x, mainBoxY, this.width, mainBoxHeight);
-
-        ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
-        ctx.font = `${GRID_SIZE*0.8}px sans-serif`;
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this.name, this.x - GRID_SIZE * 0.5, this.y + this.height / 2);
 
         ctx.textAlign = 'center';
         ctx.font = `${GRID_SIZE*0.6}px sans-serif`;
@@ -424,10 +502,17 @@ class MagneticContactor extends Component {
         ctx.lineTo(this.x + offsetX + this.width/4, linkSwitchY - 5);
         ctx.stroke();
         ctx.setLineDash([]);
-
+        
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
         });
+
+        // --- Text drawn last for visibility ---
+        ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.font = `${GRID_SIZE*0.8}px sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.name, this.x - GRID_SIZE * 0.5, this.y + this.height / 2);
     }
 }
 
@@ -485,6 +570,7 @@ class ThermalOverloadRelay extends Component {
         this.isTripped = false;
         this.relayType = 'A'; // 'A' for standard, 'B' for common point
         this.isPressingTest = false;
+        this.name = '';
         this._updateDimensions();
         this._rebuildConnectors();
     }
@@ -551,12 +637,6 @@ class ThermalOverloadRelay extends Component {
         ctx.strokeStyle = '#a0aec0';
         ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
 
-        ctx.fillStyle = this.isTripped ? '#ef4444' : (baseIsPowered ? '#f6e05e' : '#a0aec0');
-        ctx.font = `${GRID_SIZE * 0.9}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('TH-RY', this.x + this.width/2, this.y + this.height/2);
-
         // Draw aux contacts representation on the right
         const auxX = this.x + this.width - GRID_SIZE;
 
@@ -603,17 +683,24 @@ class ThermalOverloadRelay extends Component {
             ctx.closePath();
             ctx.fill();
         }
-
+        
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
         });
+
+        // --- Text drawn last for visibility ---
+        ctx.fillStyle = this.isTripped ? '#ef4444' : (baseIsPowered ? '#f6e05e' : '#a0aec0');
+        ctx.font = `${GRID_SIZE * 0.9}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.name, this.x + this.width/2, this.y + this.height/2);
     }
 }
 
 class Motor extends Component {
     constructor(x, y) {
         super(x, y, 'motor');
-        this.name = 'M' + getNextMotorNumber();
+        this.name = '';
         this.motorType = '3-phase-6'; // Default
         this.isPowered = false;
         this.animationFrame = 0;
@@ -660,6 +747,21 @@ class Motor extends Component {
         }
     }
 
+    getNamePosition() {
+        const fontSize = GRID_SIZE * 1.5;
+        const cx = this.x + this.width / 2;
+        const cy = this.y + (GRID_SIZE * 5) / 2; // body height is 5 grids
+        const textWidth = (this.name || '').length * fontSize * 0.6 + 10;
+        return {
+           x: cx - textWidth/2,
+           y: cy - fontSize/2,
+           width: textWidth,
+           height: fontSize,
+           value: this.name,
+           fontSize: fontSize
+        };
+   }
+
     draw(ctx) {
         const bodyHeight = GRID_SIZE * 5;
         const cx = this.x + this.width / 2;
@@ -676,13 +778,6 @@ class Motor extends Component {
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
         ctx.stroke();
-
-        // Text
-        ctx.fillStyle = ctx.strokeStyle;
-        ctx.font = `${GRID_SIZE * 1.5}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this.name, cx, cy);
 
         // Rotation indicator
         if (this.isPowered) {
@@ -711,8 +806,137 @@ class Motor extends Component {
             let yOffset = (c.y > this.y + this.height / 2) ? 12 : -12;
             ctx.fillText(c.pole, c.x, c.y + yOffset);
         });
+
+        // --- Text drawn last for visibility ---
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = `${GRID_SIZE * 1.5}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.name, cx, cy);
     }
 }
+
+class TerminalBlock extends Component {
+    constructor(x, y) {
+        super(x, y, 'terminalBlock');
+        this.poleType = '6P';
+        this.orientation = 'vertical';
+        this.name = '';
+        this.namePos = null;
+        this._updateFromVariant(this.poleType, this.orientation);
+    }
+    
+    setVariant(poleType, orientation) {
+        if (this.poleType !== poleType || this.orientation !== orientation) {
+            wires = wires.filter(wire => wire.start.parent.id !== this.id && wire.end.parent.id !== this.id);
+        }
+        this._updateFromVariant(poleType, orientation);
+    }
+
+    _updateFromVariant(poleType, orientation) {
+        this.poleType = poleType;
+        this.orientation = orientation;
+
+        const data = TERMINAL_BLOCK_DATA[this.orientation]?.[this.poleType];
+        if (!data) {
+             console.error(`找不到端子台資料: ${orientation}, ${poleType}`);
+             this.drawingData = JSON.parse(JSON.stringify(TERMINAL_BLOCK_DATA['vertical']['6P']));
+        } else {
+            this.drawingData = JSON.parse(JSON.stringify(data));
+        }
+        
+        const textEl = this.drawingData.drawingElements.find(el => el.type === 'text');
+        if (textEl) {
+            this.namePos = { x: textEl.x, y: textEl.y, font: textEl.font || '14px sans-serif' };
+        } else {
+            this.namePos = null;
+        }
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        this.drawingData.drawingElements.forEach(el => {
+            const elMinX = el.x;
+            const elMinY = el.y;
+            const elMaxX = el.x + (el.width || 0);
+            const elMaxY = el.y + (el.height || 0);
+            minX = Math.min(minX, elMinX);
+            minY = Math.min(minY, elMinY);
+            maxX = Math.max(maxX, elMaxX);
+            maxY = Math.max(maxY, elMaxY);
+        });
+        
+        this.minX = minX;
+        this.minY = minY;
+        this.width = snapToGrid(maxX - minX);
+        this.height = snapToGrid(maxY - minY);
+
+        this._rebuildConnectors();
+    }
+
+    _rebuildConnectors() {
+        this.connectors = [];
+        if (!this.drawingData) return;
+
+        const connectorElements = this.drawingData.drawingElements.filter(el => el.type === 'connector');
+        connectorElements.forEach(connEl => {
+            this.connectors.push({
+                id: `${this.id}-${connEl.id}`,
+                originalId: connEl.id,
+                parent: this,
+                x: this.x + (connEl.x - this.minX),
+                y: this.y + (connEl.y - this.minY),
+                type: 'terminal',
+                potential: 0
+            });
+        });
+    }
+
+    getNamePosition() {
+        if (!this.namePos) return null;
+
+        const fontSize = GRID_SIZE * 0.8; 
+        const x = this.x + (this.namePos.x - this.minX);
+        const y = this.y + (this.namePos.y - this.minY) - 5;
+        const textWidth = (this.name || '').length * fontSize * 0.6;
+
+        return {
+            x: x - textWidth / 2,
+            y: y - fontSize / 2,
+            width: textWidth + 10,
+            height: fontSize + 4,
+            value: this.name,
+            fontSize: fontSize,
+        };
+    }
+
+    draw(ctx) {
+        if (!this.drawingData) return;
+        const baseIsPowered = this.connectors.some(c => c.potential !== 0);
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.lineWidth = 2;
+
+        this.drawingData.drawingElements.forEach(el => {
+            const x = this.x + (el.x - this.minX);
+            const y = this.y + (el.y - this.minY);
+            if (el.type === 'rect') {
+                ctx.strokeRect(x, y, el.width, el.height);
+            }
+        });
+
+        this.connectors.forEach(c => drawConnector(ctx, c));
+        
+        // --- Text drawn last for visibility ---
+        if (this.namePos && this.name) {
+            const x = this.x + (this.namePos.x - this.minX);
+            const y = this.y + (this.namePos.y - this.minY) - 5; // 向上微調
+            ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; // 再次確保顏色正確
+            ctx.font = `bold ${GRID_SIZE * 0.8}px sans-serif`; // 加大字體並加粗
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.name, x, y);
+        }
+    }
+}
+
 
 class Wire {
     constructor(startConnector, endConnector, path) {

@@ -9,6 +9,7 @@
 </head>
 <body class="bg-gray-900 text-white flex md:flex-row flex-col-reverse h-screen overflow-hidden">
 
+    <!-- Toolbar -->
     <div id="toolbar" class="w-full md:w-48 md:h-full bg-gray-800 p-2 md:p-4 flex flex-row md:flex-col md:space-y-4 shadow-lg z-10 overflow-x-auto md:overflow-y-auto">
         <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2 hidden md:block">工具列</h2>
 
@@ -20,6 +21,7 @@
             <div class="tool-item" draggable="true" data-type="th-ry"><span class="desktop-text"><span class="icon">🌡️</span><span>積熱電驛</span></span><span class="mobile-text">TH-RY</span></div>
             <div class="tool-item" draggable="true" data-type="motor"><span class="desktop-text"><span class="icon">Ⓜ️</span><span>馬達</span></span><span class="mobile-text">馬達</span></div>
             <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
+            <div class="tool-item" draggable="true" data-type="terminalBlock"><span class="desktop-text"><span class="icon">🔩</span><span>端子台</span></span><span class="mobile-text">TB</span></div>
         </div>
 
         <div class="tool-group pt-0 md:pt-4 mt-0 md:mt-4 md:border-t border-gray-600 md:space-y-4">
@@ -33,6 +35,7 @@
                  </div>
             </div>
 
+            <button id="rename-tool" class="tool-item" data-type="rename"><span class="desktop-text"><span class="icon">✏️</span><span>更名</span></span><span class="mobile-text">更名</span></button>
             <button id="delete-tool" class="tool-item" data-type="delete"><span class="desktop-text"><span class="icon">🗑️</span><span>刪除</span></span><span class="mobile-text">刪除</span></button>
         </div>
 
@@ -46,6 +49,7 @@
         </div>
     </div>
 
+    <!-- Canvas Container -->
     <div id="canvas-container" class="flex-1 bg-gray-700 p-2 overflow-hidden relative">
         <canvas id="canvas"></canvas>
         <div class="absolute top-4 right-4 flex space-x-2">
@@ -59,6 +63,7 @@
         </div>
     </div>
 
+    <!-- Modals -->
     <div id="contactor-edit-modal" class="modal-bg hidden">
         <div class="modal-content w-72">
             <h3 class="text-lg font-bold mb-4">編輯電磁接觸器</h3>
@@ -79,7 +84,7 @@
             <h3 id="pole-modal-title" class="text-lg font-bold mb-4">編輯極數</h3>
             <p class="text-sm mb-4">選擇元件的極數 (P數)</p>
             <div id="pole-options" class="grid grid-cols-2 gap-4">
-                </div>
+            </div>
             <button id="close-pole-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
         </div>
     </div>
@@ -120,6 +125,31 @@
         </div>
     </div>
 
+    <div id="terminal-block-modal" class="modal-bg hidden">
+        <div class="modal-content w-auto md:w-96">
+            <h3 class="text-lg font-bold mb-4">編輯端子台</h3>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">P數 (Poles)</label>
+                <div id="tb-pole-options" class="grid grid-cols-3 gap-2">
+                    <button data-poles="6P" class="tb-option-btn bg-blue-600 p-2 rounded">6P</button>
+                    <button data-poles="7P" class="tb-option-btn bg-blue-600 p-2 rounded">7P</button>
+                    <button data-poles="12P" class="tb-option-btn bg-blue-600 p-2 rounded">12P</button>
+                    <button data-poles="15P" class="tb-option-btn bg-blue-600 p-2 rounded">15P</button>
+                    <button data-poles="25P" class="tb-option-btn bg-blue-600 p-2 rounded">25P</button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">方向 (Orientation)</label>
+                <div id="tb-orientation-options" class="grid grid-cols-2 gap-2">
+                    <button data-orientation="vertical" class="tb-option-btn bg-green-600 p-2 rounded">直式</button>
+                    <button data-orientation="horizontal" class="tb-option-btn bg-green-600 p-2 rounded">橫式</button>
+                </div>
+            </div>
+            <button id="save-tb-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <script src="js/terminalBlockData.js"></script>
     <script src="js/components.js"></script>
     <script src="js/main.js"></script>
 

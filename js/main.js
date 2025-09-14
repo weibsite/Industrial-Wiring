@@ -26,6 +26,12 @@ const closeThRyModalBtn = document.getElementById('close-th-ry-modal');
 const motorModal = document.getElementById('motor-modal');
 const closeMotorModalBtn = document.getElementById('close-motor-modal');
 
+const terminalBlockModal = document.getElementById('terminal-block-modal');
+const tbPoleOptions = document.getElementById('tb-pole-options');
+const tbOrientationOptions = document.getElementById('tb-orientation-options');
+const applyTbChangesBtn = document.getElementById('save-tb-modal');
+
+
 const saveButton = document.getElementById('save-button');
 const loadButton = document.getElementById('load-button');
 const fileInput = document.getElementById('file-input');
@@ -39,11 +45,11 @@ let nextId = 0;
 let activeToolType = null;
 let draggedToolType = null;
 let draggedGhost = null;
-let placementPreview = null; // Also used for dragging previews
+let placementPreview = null;
 let isDraggingPreview = false;
 let wiringState = { start: null, end: null };
 let wiringPathPoints = [];
-let selectedComponent = null; // For selection box and deletion
+let selectedComponent = null;
 let selectedComponentForEdit = null;
 let draggedComponent = null;
 let isPressingButton = false;
@@ -54,16 +60,16 @@ let potentialDragComponent = null;
 let longPressStartPos = { x: 0, y: 0 };
 let justDragged = false;
 
-// Viewport state for zoom and pan
 let view = { scale: 1.0, tx: 0, ty: 0 };
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let pinchState = { active: false, initialDist: 0 };
 
-// Double tap state for touch
 let lastTap = 0;
 let lastTapPos = null;
 
+let renameInput = null;
+let componentBeingRenamed = null;
 
 // --- Wire Settings ---
 let defaultWireColor = '#f6e05e';
@@ -71,7 +77,6 @@ let defaultWireThickness = 3;
 const WIRE_DEFAULT_COLORS = ['#f6e05e', '#e53e3e', '#4299e1', '#48bb78', '#1a202c'];
 let wireColorIndex = 0;
 
-// Inline Wire editing
 let selectedWire = null;
 let wireEditorUI = { colorRect: null, thickRect: null, deleteRect: null };
 const WIRE_COLORS = {
@@ -92,7 +97,6 @@ const getCanvasMousePos = (e) => {
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
-    // Transform screen coordinates to world coordinates based on pan and zoom
     const worldX = (screenX - view.tx) / view.scale;
     const worldY = (screenY - view.ty) / view.scale;
     return { x: worldX, y: worldY };
@@ -118,10 +122,10 @@ function checkCollision(rect1, ignoreId = -1) {
             rect1.x + rect1.width > rect2.x &&
             rect1.y < rect2.y + rect2.height &&
             rect1.y + rect1.height > rect2.y) {
-            return true; // Collision detected
+            return true;
         }
     }
-    return false; // No collision
+    return false;
 }
 
 function createTempComponent(type, x, y){
@@ -133,6 +137,7 @@ function createTempComponent(type, x, y){
         case 'fuse': return new FuseHolder(x, y);
         case 'th-ry': return new ThermalOverloadRelay(x,y);
         case 'motor': return new Motor(x,y);
+        case 'terminalBlock': return new TerminalBlock(x,y);
         default: return null;
     }
 }
@@ -146,16 +151,10 @@ function resizeCanvas() {
 
 function drawConnector(ctx, c) {
     const radius = 6;
-    const scaledRadius = radius / view.scale;
-    const scaledLineWidth = 1.5 / view.scale;
+    const fillColor = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : '#2d3748';
+    const strokeColor = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : '#a0aec0';
 
-    // Determine colors
-    const fillColor = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : '#2d3748'; // bg-gray-800
-    const strokeColor = c.potential !== 0 ? (c.potential === 1 ? '#f6e05e' : '#4299e1') : '#a0aec0'; // gray-500
-
-    ctx.lineWidth = scaledLineWidth;
-
-    // Outer circle
+    ctx.lineWidth = 1.5 / view.scale;
     ctx.strokeStyle = strokeColor;
     ctx.fillStyle = fillColor;
     ctx.beginPath();
@@ -163,7 +162,6 @@ function drawConnector(ctx, c) {
     ctx.fill();
     ctx.stroke();
 
-    // Cross
     ctx.strokeStyle = strokeColor;
     ctx.beginPath();
     ctx.moveTo(c.x - radius, c.y);
@@ -175,15 +173,11 @@ function drawConnector(ctx, c) {
 
 function drawGrid() {
     ctx.strokeStyle = '#4a5568';
-    ctx.lineWidth = 0.5 / view.scale; // Keep line width visually constant
-
-    // Get the visible area in world coordinates
+    ctx.lineWidth = 0.5 / view.scale;
     const left = -view.tx / view.scale;
     const top = -view.ty / view.scale;
     const right = (canvas.width - view.tx) / view.scale;
     const bottom = (canvas.height - view.ty) / view.scale;
-
-    // Calculate the first grid line to draw
     const firstX = Math.floor(left / GRID_SIZE) * GRID_SIZE;
     const firstY = Math.floor(top / GRID_SIZE) * GRID_SIZE;
 
@@ -213,7 +207,7 @@ function drawWireEditor(ctx) {
         maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
     });
     const centerX = (minX + maxX) / 2; const centerY = (minY + maxY) / 2;
-
+    
     const uiX = centerX + 15; const uiY = centerY - 10;
     const swatchSize = 20; const buttonWidth = 30; const buttonHeight = 20; const padding = 5;
 
@@ -247,10 +241,10 @@ function getPreviewPath() {
     if (!wiringState.end) return path;
     const lastPoint = path[path.length - 1];
     const mousePoint = wiringState.end;
-
+    
     const elbowPoint = { x: snapToGrid(mousePoint.x), y: lastPoint.y };
     const finalPoint = { x: snapToGrid(mousePoint.x), y: snapToGrid(mousePoint.y) };
-
+    
     if(lastPoint.x !== elbowPoint.x) path.push(elbowPoint);
     if(elbowPoint.y !== finalPoint.y) path.push(finalPoint);
 
@@ -260,12 +254,9 @@ function getPreviewPath() {
 function draw() {
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Apply view transformations (pan and zoom)
     ctx.translate(view.tx, view.ty);
     ctx.scale(view.scale, view.scale);
 
-    // --- All world-space drawing happens here ---
     drawGrid();
     runSimulation();
     wires.forEach(w => w.draw(ctx));
@@ -284,7 +275,7 @@ function draw() {
     }
 
     if (selectedComponent) {
-        ctx.strokeStyle = '#a0aec0'; // gray-500
+        ctx.strokeStyle = '#a0aec0';
         ctx.lineWidth = 2 / view.scale;
         ctx.setLineDash([6 / view.scale, 3 / view.scale]);
         ctx.strokeRect(selectedComponent.x - 4, selectedComponent.y - 4, selectedComponent.width + 8, selectedComponent.height + 8);
@@ -299,8 +290,9 @@ function draw() {
         ctx.globalAlpha = 0.7;
         const tempComp = createTempComponent(previewComponent.type, previewComponent.x, previewComponent.y);
         if (tempComp) {
+            if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
             if (previewComponent.isColliding) {
-                ctx.strokeStyle = '#ef4444'; // Red for collision
+                ctx.strokeStyle = '#ef4444';
                 ctx.lineWidth = 2 / view.scale;
                 ctx.strokeRect(tempComp.x, tempComp.y, tempComp.width, tempComp.height);
             }
@@ -308,7 +300,7 @@ function draw() {
         }
         ctx.restore();
     }
-
+    
     if (draggedComponent) {
         ctx.strokeStyle = '#e53e3e';
         ctx.lineWidth = 2 / view.scale;
@@ -332,8 +324,6 @@ function draw() {
     }
 
     drawWireEditor(ctx);
-
-    // Restore the context to its original state
     ctx.restore();
 }
 
@@ -356,26 +346,36 @@ function runSimulation() {
 
         while (queue.length > 0) {
             const currentConn = queue.shift();
-
+            
             wires.forEach(w => {
                 let otherConn = null;
                 if (w.start.id === currentConn.id) otherConn = w.end;
                 if (w.end.id === currentConn.id) otherConn = w.start;
-
+                
                 if (otherConn && !visitedConnectors.has(otherConn.id)) {
                     w.potential = potential; otherConn.potential = potential;
                     visitedConnectors.add(otherConn.id); queue.push(otherConn);
                 }
             });
-
+            
             const comp = currentConn.parent;
             let internalConnections = [];
             if (comp.type === 'fuse' && !comp.isBlown) internalConnections.push([comp.connectors[0], comp.connectors[1]]);
 
+            if (comp.type === 'terminalBlock' && comp.drawingData) {
+                comp.drawingData.componentFunctions.forEach(func => {
+                    if (func.type === '相通') {
+                        const conn1 = comp.connectors.find(c => c.originalId === func.connectors[0]);
+                        const conn2 = comp.connectors.find(c => c.originalId === func.connectors[1]);
+                        if (conn1 && conn2) internalConnections.push([conn1, conn2]);
+                    }
+                });
+            }
+
             if (comp.type === 'switch') {
                 if (comp.switchType.startsWith('pushbutton')) {
                     const isNo = comp.switchType.endsWith('no');
-                    const isClosed = (isNo && comp.isPressed) || (!isNo && !this.isPressed);
+                    const isClosed = (isNo && comp.isPressed) || (!isNo && !comp.isPressed);
                     if (isClosed) internalConnections.push([comp.connectors[0], comp.connectors[1]]);
                 } else if (comp.switchType === 'rotary_2pos') {
                     if (comp.position === 1) internalConnections.push([comp.connectors.find(c=>c.type==='com'), comp.connectors.find(c=>c.type==='out_left')]);
@@ -403,30 +403,29 @@ function runSimulation() {
                     }
                 }
             }
-
+            
             if (comp.type === 'nfb' && comp.isOn) {
                  comp.connectors.filter(c => c.type === 'positive' || c.type === 'neutral').forEach(startConn => {
                      const endConn = comp.connectors.find(c => c.type === 'output' && c.pole === startConn.pole);
                      internalConnections.push([startConn, endConn]);
                  });
             }
-
+            
             if (comp.type === 'th-ry') {
-                // Main pass-through contacts are always connected
                 for(let i=1; i<=3; i++) {
                      internalConnections.push([comp.connectors.find(c=>c.pole===`L${i}`), comp.connectors.find(c=>c.pole===`T${i}`)]);
                 }
                 if (comp.relayType === 'A') {
                     if (comp.isTripped) {
-                        internalConnections.push([comp.connectors.find(c=>c.pole==='97'), comp.connectors.find(c=>c.pole==='98')]); // NO closes
+                        internalConnections.push([comp.connectors.find(c=>c.pole==='97'), comp.connectors.find(c=>c.pole==='98')]);
                     } else {
-                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='96')]); // NC closes
+                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='96')]);
                     }
-                } else { // Type B
+                } else {
                     if(comp.isTripped) {
-                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='98')]); // COM -> NO
+                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='98')]);
                     } else {
-                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='96')]); // COM -> NC
+                        internalConnections.push([comp.connectors.find(c=>c.pole==='95'), comp.connectors.find(c=>c.pole==='96')]);
                     }
                 }
             }
@@ -454,7 +453,22 @@ function runSimulation() {
 }
 
 // --- EVENT HANDLERS ---
+function closeAllModals() {
+    contactorEditModal.classList.add('hidden');
+    poleModal.classList.add('hidden');
+    switchModal.classList.add('hidden');
+    thRyModal.classList.add('hidden');
+    motorModal.classList.add('hidden');
+    terminalBlockModal.classList.add('hidden');
+    if (selectedComponentForEdit) {
+        selectedComponentForEdit = null;
+    }
+}
+
 function handleToolClick(toolElement) {
+    closeAllModals();
+    if (renameInput) exitRenameMode();
+
     placementPreview = null;
     wiringState = { start: null, end: null };
     wiringPathPoints = [];
@@ -474,11 +488,46 @@ function handleToolClick(toolElement) {
         if (activeToolType === 'move') canvas.style.cursor = 'grab';
         if (activeToolType === 'wire') canvas.style.cursor = 'crosshair';
         if (activeToolType === 'delete') canvas.style.cursor = 'not-allowed';
+        if (activeToolType === 'rename') {
+            canvas.style.cursor = 'text';
+            if (selectedComponent) {
+                enterRenameMode(selectedComponent);
+            }
+       }
     }
     draw();
 }
 
+function addComponentToCanvas(newComp) {
+    switch (newComp.type) {
+        case 'contactor':
+        case 'motor':
+        case 'terminalBlock':
+        case 'th-ry':
+            newComp.name = { 'contactor': 'MC', 'motor': 'M', 'terminalBlock': 'TB', 'th-ry': 'TH' }[newComp.type] + getNextNumberForType(newComp.type);
+            break;
+        case 'switch':
+            // 初始化的開關預設為按鈕
+            newComp.name = 'PB' + getNextNumberForType('pushbutton');
+            break;
+        case 'bulb':
+            // 使用 displayName 顯示 PL 名稱，保留 name 用於顏色邏輯
+            newComp.displayName = 'PL' + getNextNumberForType('bulb');
+            break;
+    }
+    components.push(newComp);
+}
+
+
 function handleCanvasInteraction(x, y, e = null) {
+    if (renameInput) {
+        // If clicking outside the rename input, finalize the edit
+        if (e && e.target !== renameInput) {
+            exitRenameMode();
+        }
+        return; // Don't process other interactions while renaming
+    }
+    
     if (selectedWire && wireEditorUI.colorRect) {
         const cr = wireEditorUI.colorRect; const tr = wireEditorUI.thickRect; const dr = wireEditorUI.deleteRect;
         if (x >= cr.x && x <= cr.x + cr.width && y >= cr.y && y <= cr.y + cr.height) { selectedWire.color = WIRE_COLORS[selectedWire.color] || '#f6e05e'; draw(); return; }
@@ -486,7 +535,7 @@ function handleCanvasInteraction(x, y, e = null) {
         if (x >= dr.x && x <= dr.x + dr.width && y >= dr.y && y <= dr.y + dr.height) { wires = wires.filter(w => w.id !== selectedWire.id); selectedWire = null; draw(); return; }
     }
 
-    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor'].includes(activeToolType);
+    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor', 'terminalBlock'].includes(activeToolType);
     if (isComponentTool) {
         selectedComponent = null;
         const clickedOnComponent = components.some(c => c.isUnderMouse(x, y));
@@ -494,13 +543,15 @@ function handleCanvasInteraction(x, y, e = null) {
 
         if (placementPreview) {
             const tempPreviewComp = createTempComponent(placementPreview.type, placementPreview.x, placementPreview.y);
-            const mouseOnPreview = (x >= tempPreviewComp.x && x <= tempPreviewComp.x + tempPreviewComp.width && y >= tempPreviewComp.y && y <= tempPreviewComp.y + tempPreviewComp.height);
+            if(tempPreviewComp.type === 'terminalBlock') tempPreviewComp.setVariant('6P', 'vertical');
 
+            const mouseOnPreview = (x >= tempPreviewComp.x && x <= tempPreviewComp.x + tempPreviewComp.width && y >= tempPreviewComp.y && y <= tempPreviewComp.y + tempPreviewComp.height);
+            
             if (mouseOnPreview) {
                 const rect = { x: placementPreview.x, y: placementPreview.y, width: tempPreviewComp.width, height: tempPreviewComp.height };
                 if (!checkCollision(rect)) {
                     const newComp = createTempComponent(placementPreview.type, placementPreview.x, placementPreview.y);
-                    if (newComp) components.push(newComp);
+                    if (newComp) addComponentToCanvas(newComp);
                 }
                 placementPreview = null;
             } else {
@@ -508,6 +559,7 @@ function handleCanvasInteraction(x, y, e = null) {
             }
         } else if (!clickedOnComponent) {
             const tempComp = createTempComponent(activeToolType, sX, sY);
+             if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
             placementPreview = { type: activeToolType, x: tempComp.x, y: tempComp.y };
         }
     } else {
@@ -521,11 +573,16 @@ function handleCanvasInteraction(x, y, e = null) {
                 wiringState.start = clickedConnector;
                 wiringPathPoints.push({ x: clickedConnector.x, y: clickedConnector.y });
                 draw();
-                return;
+                return; 
             }
         }
 
-        if (activeToolType === 'delete') {
+        if (activeToolType === 'rename') {
+            if(clickedComponent) {
+                selectedComponent = clickedComponent; // Select it first
+                enterRenameMode(clickedComponent);
+            }
+        } else if (activeToolType === 'delete') {
             if (clickedComponent) {
                 wires = wires.filter(w => w.start.parent.id !== clickedComponent.id && w.end.parent.id !== clickedComponent.id);
                 components = components.filter(c => c.id !== clickedComponent.id);
@@ -555,24 +612,24 @@ function handleCanvasInteraction(x, y, e = null) {
             let somethingWasClicked = false;
             const wireToSelect = wires.find(w => { if (!w.path || w.path.length < 2) return false; for (let i = 0; i < w.path.length - 1; i++) { if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 6) return true; } return false; });
 
-            if (wireToSelect) {
-                selectedWire = wireToSelect;
+            if (wireToSelect) { 
+                selectedWire = wireToSelect; 
                 selectedComponent = null;
-                somethingWasClicked = true;
+                somethingWasClicked = true; 
             } else if (clickedComponent) {
                 selectedComponent = clickedComponent;
                 selectedWire = null;
                 if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
-
+                
                 if (typeof clickedComponent.handleInteraction === 'function') {
                     clickedComponent.handleInteraction(x, y);
                 }
 
                 somethingWasClicked = true;
             }
-
-            if (!somethingWasClicked) {
-                selectedWire = null;
+            
+            if (!somethingWasClicked) { 
+                selectedWire = null; 
                 selectedComponent = null;
             }
         }
@@ -604,18 +661,22 @@ canvas.addEventListener('mousemove', (e) => {
         placementPreview.x = snapToGrid(pos.x - dragOffset.x);
         placementPreview.y = snapToGrid(pos.y - dragOffset.y);
         justDragged = true;
-    } else if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) {
-        const newX = snapToGrid(pos.x - dragOffset.x);
-        const newY = snapToGrid(pos.y - dragOffset.y);
+    } else if ((activeToolType === 'move' || isLongPressDrag) && draggedComponent) { 
+        const newX = snapToGrid(pos.x - dragOffset.x); 
+        const newY = snapToGrid(pos.y - dragOffset.y); 
         draggedComponent.updatePosition(newX, newY);
         justDragged = true;
-    } else if (activeToolType === 'wire' && wiringState.start) {
-        wiringState.end = pos;
+    } else if (activeToolType === 'wire' && wiringState.start) { 
+        wiringState.end = pos; 
     } else if (draggedGhost) {
         draggedGhost.x = pos.x - dragOffset.x;
         draggedGhost.y = pos.y - dragOffset.y;
-        const tempRect = { x: snapToGrid(draggedGhost.x), y: snapToGrid(draggedGhost.y), width: draggedGhost.width, height: draggedGhost.height };
-        draggedGhost.isColliding = checkCollision(tempRect);
+        const sX = snapToGrid(draggedGhost.x);
+        const sY = snapToGrid(draggedGhost.y);
+        const tempComp = createTempComponent(draggedGhost.type, sX, sY);
+        if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
+
+        draggedGhost.isColliding = checkCollision({ x: sX, y: sY, width: tempComp.width, height: tempComp.height });
     }
     draw();
 });
@@ -627,7 +688,8 @@ canvas.addEventListener('click', (e) => {
 });
 
 canvas.addEventListener('dblclick', (e) => {
-    const { x, y } = getCanvasMousePos(e);
+    if (renameInput) return;
+    const { x, y } = getCanvasMousePos(e); 
     handleCanvasDoubleClick(x,y);
 });
 
@@ -640,6 +702,7 @@ function handleCanvasDoubleClick(x,y) {
         else if (clickedComponent.type === 'bulb') { clickedComponent.cycleColor(); draw(); }
         else if (clickedComponent.type === 'th-ry') { thRyModal.classList.remove('hidden'); }
         else if (clickedComponent.type === 'motor') { motorModal.classList.remove('hidden'); }
+        else if (clickedComponent.type === 'terminalBlock') { openTerminalBlockModal(); }
         else if (clickedComponent.type === 'fuse' && clickedComponent.isBlown) {
             clickedComponent.isBlown = false;
             draw();
@@ -671,21 +734,27 @@ function openPoleModal(options) {
 }
 
 canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 1) { // Middle mouse button for panning
+    if (e.button === 1) {
+        if (renameInput) exitRenameMode();
         isPanning = true;
         panStart = { x: e.clientX, y: e.clientY };
         canvas.style.cursor = 'grabbing';
         e.preventDefault();
         return;
     }
-
+    
     const pos = getCanvasMousePos(e);
     justDragged = false;
-
+    
+    if (renameInput && e.target !== renameInput) {
+        exitRenameMode();
+    }
+    
     const comp = components.find(c => c.isUnderMouse(pos.x, pos.y));
     const tempPreviewComp = placementPreview ? createTempComponent(placementPreview.type, placementPreview.x, placementPreview.y) : null;
+    if(tempPreviewComp && tempPreviewComp.type === 'terminalBlock') tempPreviewComp.setVariant('6P', 'vertical');
     const mouseOnPreview = tempPreviewComp && (pos.x >= tempPreviewComp.x && pos.x <= tempPreviewComp.x + tempPreviewComp.width && pos.y >= tempPreviewComp.y && pos.y <= tempPreviewComp.y + tempPreviewComp.height);
-    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor'].includes(activeToolType);
+    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor', 'terminalBlock'].includes(activeToolType);
 
     if (activeToolType === 'move' && comp) {
          canvas.style.cursor = 'grabbing';
@@ -727,12 +796,13 @@ canvas.addEventListener('mouseup', (e) => {
         canvas.style.cursor = 'default';
     }
     clearTimeout(longPressTimer); longPressTimer = null;
-
+    
     if (isDraggingPreview){
         const tempComp = createTempComponent(placementPreview.type, placementPreview.x, placementPreview.y);
+        if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
         const rect = { x: placementPreview.x, y: placementPreview.y, width: tempComp.width, height: tempComp.height };
         if(checkCollision(rect)){
-           placementPreview = null; // Cancel if dragged to colliding spot
+           placementPreview = null;
         }
     }
     isDraggingPreview = false;
@@ -753,7 +823,7 @@ canvas.addEventListener('mouseup', (e) => {
         isPressingButton = false;
         components.forEach(c => c.release && c.release());
     }
-
+    
     draw();
     setTimeout(() => { justDragged = false; }, 10);
 });
@@ -769,12 +839,12 @@ wireThicknessPicker.addEventListener('click', () => {
     wireThicknessPicker.textContent = defaultWireThickness === 3 ? '細' : '粗';
 });
 
-// --- Toolbar Drag & Drop ---
 toolbar.addEventListener('dragstart', (e) => {
     const toolItem = e.target.closest('.tool-item');
     if(toolItem && toolItem.draggable){
          draggedToolType = toolItem.dataset.type;
          const tempComp = createTempComponent(draggedToolType, 0, 0);
+         if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
          dragOffset.x = tempComp.width / 2;
          dragOffset.y = tempComp.height / 2;
     }
@@ -787,6 +857,7 @@ canvas.addEventListener('dragover', (e) => {
     const sX = snapToGrid(pos.x - dragOffset.x);
     const sY = snapToGrid(pos.y - dragOffset.y);
     const tempComp = createTempComponent(draggedToolType, sX, sY);
+    if(tempComp.type === 'terminalBlock') tempComp.setVariant('6P', 'vertical');
 
     draggedGhost = {
         type: draggedToolType,
@@ -802,7 +873,7 @@ canvas.addEventListener('drop', (e) => {
     e.preventDefault();
     if(draggedGhost && !draggedGhost.isColliding) {
         const newComp = createTempComponent(draggedGhost.type, draggedGhost.x, draggedGhost.y);
-        if(newComp) components.push(newComp);
+        if(newComp) addComponentToCanvas(newComp);
         if (activeToolType === 'delete') {
             handleToolClick(document.getElementById('delete-tool'));
         }
@@ -812,24 +883,22 @@ canvas.addEventListener('drop', (e) => {
     draw();
 });
 
-// --- KEYBOARD HANDLERS ---
-window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        if (placementPreview) { placementPreview = null; }
-        else if(activeToolType === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; }
-        else if (selectedWire) { selectedWire = null; }
+window.addEventListener('keydown', (e) => { 
+    if (e.key === 'Escape' && !renameInput) { 
+        if (placementPreview) { placementPreview = null; } 
+        else if(activeToolType === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; } 
+        else if (selectedWire) { selectedWire = null; } 
         else if (selectedComponent) { selectedComponent = null; }
-        else if (activeToolType) {
-            document.querySelector(`.tool-item[data-type="${activeToolType}"]`)?.classList.remove('active');
-            activeToolType = null;
-            canvas.style.cursor = 'default';
-        }
-        draw();
-    } else if (activeToolType === 'wire' && e.key === 'Backspace' && wiringPathPoints.length > 1) {
-        wiringPathPoints.pop();
-        draw();
+        else if (activeToolType) { 
+            document.querySelector(`.tool-item[data-type="${activeToolType}"]`)?.classList.remove('active'); 
+            activeToolType = null; 
+            canvas.style.cursor = 'default'; 
+        } 
+        draw(); 
+    } else if (activeToolType === 'wire' && e.key === 'Backspace' && wiringPathPoints.length > 1) { 
+        wiringPathPoints.pop(); 
+        draw(); 
     } else if (e.key === 'Delete' && selectedComponent) {
-        if (selectedComponent.type === 'contactor' || selectedComponent.type === 'motor') updateComponentCounter(selectedComponent.type);
         wires = wires.filter(w => w.start.parent.id !== selectedComponent.id && w.end.parent.id !== selectedComponent.id);
         components = components.filter(c => c.id !== selectedComponent.id);
         selectedComponent = null;
@@ -840,6 +909,74 @@ window.addEventListener('keydown', (e) => {
         draw();
     }
 });
+
+// --- RENAME LOGIC ---
+function exitRenameMode() {
+    if (!renameInput || !componentBeingRenamed) return;
+
+    const newName = renameInput.value.trim();
+    if (componentBeingRenamed.type === 'bulb') {
+        // 對於指示燈，允許透過輸入 'RL', 'BL' 等來改變顏色
+        // 否則就更新其顯示名稱 (PL1)
+        const newColor = bulbColors.find(c => c.label.toLowerCase() === newName.toLowerCase());
+        if (newColor) {
+            componentBeingRenamed.setName(newName);
+        } else {
+            componentBeingRenamed.displayName = newName;
+        }
+    }
+    else if (typeof componentBeingRenamed.setName === 'function') {
+         componentBeingRenamed.setName(newName);
+    } else {
+         componentBeingRenamed.name = newName;
+    }
+
+    renameInput.remove();
+    renameInput = null;
+    componentBeingRenamed = null;
+    draw();
+}
+
+function enterRenameMode(component) {
+    if (renameInput) exitRenameMode();
+    if (typeof component.getNamePosition !== 'function') return;
+
+    const pos = component.getNamePosition();
+    if (!pos) return;
+
+    const screenX = pos.x * view.scale + view.tx;
+    const screenY = pos.y * view.scale + view.ty;
+    const screenWidth = pos.width * view.scale;
+    const screenHeight = pos.height * view.scale;
+    const fontSize = (pos.fontSize || GRID_SIZE * 0.9) * view.scale;
+
+    renameInput = document.createElement('input');
+    renameInput.type = 'text';
+    renameInput.value = pos.value;
+    renameInput.className = 'rename-input';
+    renameInput.style.left = `${screenX}px`;
+    renameInput.style.top = `${screenY}px`;
+    renameInput.style.width = `${screenWidth}px`;
+    renameInput.style.height = `${screenHeight}px`;
+    renameInput.style.fontSize = `${fontSize}px`;
+    
+    componentBeingRenamed = component;
+
+    renameInput.addEventListener('blur', exitRenameMode);
+    renameInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            renameInput.blur();
+        } else if (e.key === 'Escape') {
+            renameInput.value = componentBeingRenamed.name || '';
+            renameInput.blur();
+        }
+    });
+
+    canvasContainer.appendChild(renameInput);
+    renameInput.focus();
+    renameInput.select();
+}
 
 // --- MODAL LOGIC ---
 closeContactorEditModalBtn.addEventListener('click', () => {
@@ -853,7 +990,32 @@ closeContactorEditModalBtn.addEventListener('click', () => {
 
 poleOptionsContainer.addEventListener('click', (e) => { if (e.target.classList.contains('pole-btn')) { const poles = e.target.dataset.poles; if (selectedComponentForEdit) { selectedComponentForEdit.setPoles(poles); draw(); } poleModal.classList.add('hidden'); selectedComponentForEdit = null; } });
 closePoleModalBtn.addEventListener('click', () => { poleModal.classList.add('hidden'); selectedComponentForEdit = null; });
-switchModal.addEventListener('click', (e) => { if (e.target.classList.contains('switch-type-btn')) { const type = e.target.dataset.switchType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'switch') { selectedComponentForEdit.setSwitchType(type); draw(); } switchModal.classList.add('hidden'); selectedComponentForEdit = null; } });
+
+switchModal.addEventListener('click', (e) => {
+    if (e.target.classList.contains('switch-type-btn')) {
+        const type = e.target.dataset.switchType;
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'switch') {
+            const wasPushButton = selectedComponentForEdit.switchType.startsWith('pushbutton');
+            const wasRotary = selectedComponentForEdit.switchType.startsWith('rotary');
+            
+            selectedComponentForEdit.setSwitchType(type); // 更新類型
+            
+            const isPushButton = selectedComponentForEdit.switchType.startsWith('pushbutton');
+            const isRotary = selectedComponentForEdit.switchType.startsWith('rotary');
+
+            if (isRotary && !wasRotary) {
+                // 從其他類型變更為旋轉開關
+                selectedComponentForEdit.name = 'COS' + getNextNumberForType('rotary_switch');
+            } else if (isPushButton && !wasPushButton) {
+                // 從其他類型變更為按鈕
+                selectedComponentForEdit.name = 'PB' + getNextNumberForType('pushbutton');
+            }
+            draw();
+        }
+        switchModal.classList.add('hidden');
+        selectedComponentForEdit = null;
+    }
+});
 closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
 thRyModal.addEventListener('click', (e) => { if (e.target.classList.contains('th-ry-type-btn')) { const type = e.target.dataset.thRyType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'th-ry') { selectedComponentForEdit.setRelayType(type); draw(); } thRyModal.classList.add('hidden'); selectedComponentForEdit = null; } });
@@ -862,58 +1024,127 @@ closeThRyModalBtn.addEventListener('click', () => { thRyModal.classList.add('hid
 motorModal.addEventListener('click', (e) => { if (e.target.classList.contains('motor-type-btn')) { const type = e.target.dataset.motorType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'motor') { selectedComponentForEdit.setMotorType(type); draw(); } motorModal.classList.add('hidden'); selectedComponentForEdit = null; } });
 closeMotorModalBtn.addEventListener('click', () => { motorModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
+// Terminal Block Modal Logic
+let tempTbSettings = {};
+
+function updateTbModalButtons() {
+    // 更新 P數 按鈕的啟用狀態
+    document.querySelectorAll('#tb-pole-options .tb-option-btn').forEach(btn => {
+        const isSelected = btn.dataset.poles === tempTbSettings.poles;
+        btn.classList.toggle('bg-yellow-500', isSelected); // 選中時的顏色
+        btn.classList.toggle('text-gray-900', isSelected);
+        btn.classList.toggle('bg-blue-600', !isSelected);   // 未選中時的顏色
+        btn.classList.toggle('text-white', !isSelected);
+    });
+    // 更新 方向 按鈕的啟用狀態
+    document.querySelectorAll('#tb-orientation-options .tb-option-btn').forEach(btn => {
+        const isSelected = btn.dataset.orientation === tempTbSettings.orientation;
+        btn.classList.toggle('bg-yellow-500', isSelected); // 選中時的顏色
+        btn.classList.toggle('text-gray-900', isSelected);
+        btn.classList.toggle('bg-green-600', !isSelected);  // 未選中時的顏色
+        btn.classList.toggle('text-white', !isSelected);
+    });
+}
+
+function openTerminalBlockModal() {
+    if (!selectedComponentForEdit || selectedComponentForEdit.type !== 'terminalBlock') return;
+    // 從被選中的元件初始化暫存設定
+    tempTbSettings.poles = selectedComponentForEdit.poleType;
+    tempTbSettings.orientation = selectedComponentForEdit.orientation;
+
+    updateTbModalButtons(); // 根據暫存設定更新按鈕外觀
+
+    terminalBlockModal.classList.remove('hidden');
+}
+
+tbPoleOptions.addEventListener('click', e => {
+    const button = e.target.closest('.tb-option-btn');
+    if (button) {
+        tempTbSettings.poles = button.dataset.poles;
+        updateTbModalButtons(); // 更新按鈕 UI
+        if (selectedComponentForEdit) { // 立刻套用變更
+            selectedComponentForEdit.setVariant(tempTbSettings.poles, tempTbSettings.orientation);
+            draw();
+        }
+    }
+});
+
+tbOrientationOptions.addEventListener('click', e => {
+    const button = e.target.closest('.tb-option-btn');
+    if (button) {
+        tempTbSettings.orientation = button.dataset.orientation;
+        updateTbModalButtons(); // 更新按鈕 UI
+        if (selectedComponentForEdit) { // 立刻套用變更
+            selectedComponentForEdit.setVariant(tempTbSettings.poles, tempTbSettings.orientation);
+            draw();
+        }
+    }
+});
+
+applyTbChangesBtn.addEventListener('click', () => {
+    // 變更已即時套用，此按鈕現在只用來關閉視窗
+    terminalBlockModal.classList.add('hidden');
+    selectedComponentForEdit = null;
+});
+
 
 // --- SAVE/LOAD LOGIC ---
-function getNextContactorNumber() {
-    const existing = components.filter(c => c.type === 'contactor');
+function getNextNumberForType(type) {
+    let prefix = '';
+    let filterFn = (c) => c.type === type;
+
+    switch(type) {
+        case 'contactor': prefix = 'MC'; break;
+        case 'motor': prefix = 'M'; break;
+        case 'terminalBlock': prefix = 'TB'; break;
+        case 'th-ry': prefix = 'TH'; break;
+        case 'bulb': prefix = 'PL'; break;
+        case 'rotary_switch':
+            prefix = 'COS';
+            filterFn = c => c.type === 'switch' && c.switchType.startsWith('rotary');
+            break;
+        case 'pushbutton':
+             prefix = 'PB';
+             filterFn = c => c.type === 'switch' && c.switchType.startsWith('pushbutton');
+             break;
+        default: return 1;
+    }
+
+    const existing = components.filter(filterFn);
     let maxNum = 0;
-    existing.forEach(mc => {
-        if (mc.name && mc.name.startsWith('MC')) {
-            const num = parseInt(mc.name.substring(2));
+    
+    existing.forEach(comp => {
+        // 指示燈使用 displayName，其他元件使用 name
+        const nameToTest = (type === 'bulb' && comp.displayName) ? comp.displayName : comp.name;
+        if (nameToTest && nameToTest.startsWith(prefix)) {
+            const num = parseInt(nameToTest.substring(prefix.length));
             if (!isNaN(num) && num > maxNum) maxNum = num;
         }
     });
     return maxNum + 1;
 }
-
-function getNextMotorNumber() {
-    const existing = components.filter(c => c.type === 'motor');
-    let maxNum = 0;
-    existing.forEach(m => {
-        if (m.name && m.name.startsWith('M')) {
-            const num = parseInt(m.name.substring(1));
-            if (!isNaN(num) && num > maxNum) maxNum = num;
-        }
-    });
-    return maxNum + 1;
-}
-
 
 function saveLayout() {
     const layout = {
         components: components.map(c => {
-            const data = { id: c.id, type: c.type, x: c.x, y: c.y };
+            const data = { id: c.id, type: c.type, x: c.x, y: c.y, name: c.name };
+            if (c.displayName) data.displayName = c.displayName;
             if (c.poleType) data.poleType = c.poleType;
             if (c.switchType) data.switchType = c.switchType;
             if (c.relayType) data.relayType = c.relayType;
             if (c.motorType) data.motorType = c.motorType;
+            if (c.orientation) data.orientation = c.orientation;
             if (c.colorIndex !== undefined) data.colorIndex = c.colorIndex;
             if (c.isOn !== undefined) data.isOn = c.isOn;
             if (c.isBlown !== undefined) data.isBlown = c.isBlown;
             if (c.isTripped !== undefined) data.isTripped = c.isTripped;
-            if (c.state) data.state = c.state;
             if (c.position) data.position = c.position;
             if (c.hasLeftAux !== undefined) data.hasLeftAux = c.hasLeftAux;
-            if (c.name) data.name = c.name;
             return data;
         }),
         wires: wires.map(w => ({
-            id: w.id,
-            startConnectorId: w.start.id,
-            endConnectorId: w.end.id,
-            path: w.path,
-            color: w.color,
-            thickness: w.thickness
+            id: w.id, startConnectorId: w.start.id, endConnectorId: w.end.id,
+            path: w.path, color: w.color, thickness: w.thickness
         })),
         nextId: nextId,
     };
@@ -922,76 +1153,47 @@ function saveLayout() {
     const blob = new Blob([dataStr], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'circuit-layout.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = 'circuit-layout.json';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 function loadLayout(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
+    const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = e => {
         try {
-            const layout = JSON.parse(e.target.result);
-            reconstructLayout(layout);
+            reconstructLayout(JSON.parse(e.target.result));
         } catch (error) {
             console.error("Error parsing layout file:", error);
             alert("讀取檔案失敗，請確認檔案格式是否正確。");
         }
     };
     reader.readAsText(file);
-    fileInput.value = ''; // Reset input
+    fileInput.value = '';
 }
 
 function reconstructLayout(layout) {
-    components = [];
-    wires = [];
-    nextId = 0;
+    components = []; wires = []; nextId = 0;
 
     layout.components.forEach(data => {
-        let comp;
-        // Temporarily prevent auto-incrementing name during reconstruction
-        const originalContactorConstructor = MagneticContactor;
-        const originalMotorConstructor = Motor;
-
-        if (data.type === 'contactor') {
-            MagneticContactor = function(x,y) { // Override
-                Component.call(this, x, y, 'contactor');
-                this.name = data.name; this.coilEnergized = false; this.hasLeftAux = data.hasLeftAux || false;
-                this._updateDimensions(); this._rebuildConnectors();
-            }
-            MagneticContactor.prototype = Object.create(Component.prototype);
-            Object.assign(MagneticContactor.prototype, originalContactorConstructor.prototype);
-        }
-         if (data.type === 'motor') {
-            Motor = function(x,y) { // Override
-                Component.call(this, x, y, 'motor');
-                this.name = data.name; this.motorType = data.motorType || '3-phase-6'; this.isPowered = false; this.animationFrame = 0;
-                this._updateDimensions(); this._rebuildConnectors();
-            }
-            Motor.prototype = Object.create(Component.prototype);
-            Object.assign(Motor.prototype, originalMotorConstructor.prototype);
-        }
-
-        comp = createTempComponent(data.type, data.x, data.y);
-
-        if (data.type === 'contactor') MagneticContactor = originalContactorConstructor;
-        if (data.type === 'motor') Motor = originalMotorConstructor;
-
-
+        let comp = createTempComponent(data.type, data.x, data.y);
         if (comp) {
             Object.assign(comp, data);
-            comp._updateDimensions();
-            comp._rebuildConnectors();
+            if(comp.type === 'bulb' && data.name && data.colorIndex !== undefined){
+                 comp.setName(data.name); // 保持顏色正確
+                 if (data.displayName) comp.displayName = data.displayName; // 恢復顯示名稱
+            }
+            else if(comp.type === 'terminalBlock'){
+                 comp._updateFromVariant(data.poleType, data.orientation);
+            } else {
+                comp._updateDimensions();
+                comp._rebuildConnectors();
+            }
             components.push(comp);
         }
     });
-
+    
     const allConnectors = new Map();
     components.forEach(c => c.connectors.forEach(conn => allConnectors.set(conn.id, conn)));
 
@@ -1000,9 +1202,7 @@ function reconstructLayout(layout) {
         const end = allConnectors.get(data.endConnectorId);
         if (start && end) {
             const wire = new Wire(start, end, data.path);
-            wire.id = data.id;
-            wire.color = data.color;
-            wire.thickness = data.thickness;
+            Object.assign(wire, data);
             wires.push(wire);
         }
     });
@@ -1026,6 +1226,7 @@ document.getElementById('bulb-tool-item').addEventListener('dblclick', () => {
 });
 
 canvas.addEventListener('wheel', e => {
+    if (renameInput) exitRenameMode();
     e.preventDefault();
     const zoomIntensity = 0.1;
     const wheel = e.deltaY < 0 ? 1 : -1;
@@ -1046,7 +1247,6 @@ canvas.addEventListener('wheel', e => {
     draw();
 });
 
-// --- TOUCH EVENTS ---
 canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     if (e.touches.length === 1) {
@@ -1103,12 +1303,12 @@ canvas.addEventListener('touchmove', e => {
     if (e.touches.length === 1 && !pinchState.active) {
         const touch = e.touches[0];
         const pos = getCanvasMousePos(touch);
-
+        
         if (longPressTimer) {
             const dist = Math.hypot(pos.x - longPressStartPos.x, pos.y - longPressStartPos.y);
             if (dist > 10) { clearTimeout(longPressTimer); longPressTimer = null; }
         }
-
+        
         if (isLongPressDrag && draggedComponent) {
             const newX = snapToGrid(pos.x - dragOffset.x);
             const newY = snapToGrid(pos.y - dragOffset.y);
@@ -1122,17 +1322,17 @@ canvas.addEventListener('touchmove', e => {
     } else if (e.touches.length === 2 && pinchState.active) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
-
+        
         const currentDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
         const scaleFactor = currentDist / pinchState.initialDist;
-
+        
         const rect = canvas.getBoundingClientRect();
         const midX = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
         const midY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
 
         const mousePointX = (midX - view.tx) / view.scale;
         const mousePointY = (midY - view.ty) / view.scale;
-
+        
         view.scale *= scaleFactor;
         view.scale = Math.max(0.25, Math.min(4, view.scale));
 
@@ -1146,18 +1346,18 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-
+    
     if (!isLongPressDrag && !justDragged && e.changedTouches.length === 1 && !pinchState.active && !isPanning) {
          const touch = e.changedTouches[0];
          const { x, y } = getCanvasMousePos(touch);
-
+        
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         const dist = lastTapPos ? Math.hypot(x - lastTapPos.x, y - lastTapPos.y) : Infinity;
 
         if (tapLength < 300 && tapLength > 0 && dist < 20) {
              handleCanvasDoubleClick(x, y);
-             lastTap = 0; // Reset tap
+             lastTap = 0;
              lastTapPos = null;
         } else {
              handleCanvasInteraction(x, y);
@@ -1188,21 +1388,19 @@ canvas.addEventListener('touchend', e => {
     if (isPanning) {
         isPanning = false;
     }
-
+    
     if (e.touches.length < 2) {
          pinchState.active = false;
     }
 
     draw();
-    setTimeout(() => { justDragged = false; }, 50); // a small delay to prevent click after drag
+    setTimeout(() => { justDragged = false; }, 50);
 }, { passive: false });
-
 
 saveButton.addEventListener('click', saveLayout);
 loadButton.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', loadLayout);
 
-// Start animation loop for things like motors
 function animate() {
     let needsRedraw = false;
     components.forEach(c => {
