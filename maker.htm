@@ -741,10 +741,11 @@
     addFunctionBtn.addEventListener('click', (e) => {
         if (addFunctionBtn.disabled) return;
         updateActionButtonsState(); // Ensure modal buttons are correctly enabled/disabled
-        const rect = addFunctionBtn.getBoundingClientRect(); functionModal.classList.remove('hidden');
+        const rect = addFunctionBtn.getBoundingClientRect();
+        functionModal.classList.remove('hidden');
         const modalRect = functionModal.getBoundingClientRect();
         functionModal.style.left = `${rect.left + (rect.width / 2) - (modalRect.width / 2)}px`;
-        functionModal.style.top = `${rect.top - modalRect.height - 10}px`; 
+        functionModal.style.top = `${rect.bottom + 10}px`; 
         e.stopPropagation();
     });
     
