@@ -103,7 +103,23 @@ class NFB extends Component {
              this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'output', pole: label, potential: 0 });
         });
     }
-    toggle() { this.isOn = !this.isOn; }
+    
+    /**
+     * [FIXED] 修正 NFB 的互動行為.
+     * 原始碼在 mousedown 和 click 事件都會觸發互動，導致狀態被切換兩次，看起來像沒反應。
+     * 此修正讓 NFB 只在 click 事件時切換狀態，恢復正常的指撥開關行為。
+     * @param {number} x - 滑鼠 x 座標
+     * @param {number} y - 滑鼠 y 座標
+     * @param {string} eventType - 事件類型 ('mousedown' 或 undefined)
+     */
+    handleInteraction(x, y, eventType) {
+        // 只有在非 'mousedown' 事件時才切換狀態 (即 click 事件觸發時)。
+        // 這樣可以避免 mousedown 和 click 連續觸發導致的雙重切換問題。
+        if (eventType !== 'mousedown') {
+            this.isOn = !this.isOn;
+        }
+    }
+
     getInternalConnections() {
         const connections = [];
         if (this.isOn) {

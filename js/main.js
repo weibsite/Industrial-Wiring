@@ -1331,4 +1331,3 @@ resizeCanvas();
 lastTime = performance.now();
 requestAnimationFrame(animate);
 wireColorPicker.style.backgroundColor = defaultWireColor;
-
