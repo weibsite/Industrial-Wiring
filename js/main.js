@@ -92,7 +92,7 @@ const bulbColors = [
 ];
 
 // --- UTILITY & HELPER FUNCTIONS ---
-const snapToGrid = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
+const snapToGrid = (val) => Math.round(val / (GRID_SIZE / 2)) * (GRID_SIZE / 2);
 const getCanvasMousePos = (e) => {
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
@@ -884,6 +884,29 @@ canvas.addEventListener('drop', (e) => {
 });
 
 window.addEventListener('keydown', (e) => { 
+    if (selectedComponent && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault(); // 防止頁面滾動
+        const step = GRID_SIZE / 2;
+        let newX = selectedComponent.x;
+        let newY = selectedComponent.y;
+
+        switch (e.key) {
+            case 'ArrowUp':    newY -= step; break;
+            case 'ArrowDown':  newY += step; break;
+            case 'ArrowLeft':  newX -= step; break;
+            case 'ArrowRight': newX += step; break;
+        }
+
+        // 在套用移動前檢查碰撞
+        const rect = { x: newX, y: newY, width: selectedComponent.width, height: selectedComponent.height };
+        if (!checkCollision(rect, selectedComponent.id)) {
+            selectedComponent.updatePosition(newX, newY);
+        }
+
+        draw();
+        return; // 停止此事件的進一步處理
+    }
+    
     if (e.key === 'Escape' && !renameInput) { 
         if (placementPreview) { placementPreview = null; } 
         else if(activeToolType === 'wire' && wiringState.start) { wiringState = { start: null, end: null }; wiringPathPoints = []; } 
