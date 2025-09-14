@@ -93,6 +93,9 @@
         <h3 class="text-lg font-bold mb-4 text-white">選擇功能</h3>
         <div class="flex flex-col gap-2">
             <button id="func-conductive-btn" class="w-full text-left bg-gray-600 hover:bg-gray-500 p-2 rounded text-white">相通</button>
+            <button id="func-coil-btn" class="w-full text-left bg-blue-600 hover:bg-blue-500 p-2 rounded text-white">線圈</button>
+            <button id="func-a-contact-btn" class="w-full text-left bg-green-600 hover:bg-green-500 p-2 rounded text-white">A接點 (NO)</button>
+            <button id="func-b-contact-btn" class="w-full text-left bg-red-600 hover:bg-red-500 p-2 rounded text-white">B接點 (NC)</button>
         </div>
     </div>
 
@@ -109,7 +112,9 @@
     const codeArea = document.getElementById('code-area');
     const functionModal = document.getElementById('function-modal');
     const funcConductiveBtn = document.getElementById('func-conductive-btn');
-
+    const funcCoilBtn = document.getElementById('func-coil-btn');
+    const funcAContactBtn = document.getElementById('func-a-contact-btn');
+    const funcBContactBtn = document.getElementById('func-b-contact-btn');
 
     const GRID_SIZE = 20;
     const HANDLE_SIZE = 8;
@@ -146,7 +151,6 @@
         return { x: x * scale + viewOffsetX, y: y * scale + viewOffsetY };
     }
 
-
     function resizeCanvas() {
         const container = canvas.parentElement;
         canvas.width = container.clientWidth;
@@ -157,26 +161,18 @@
     function drawGrid() {
         ctx.strokeStyle = `rgba(255, 255, 255, ${Math.max(0.1, 0.2 / scale)})`;
         ctx.lineWidth = 0.5 / scale;
-
         const viewLeft = -viewOffsetX / scale;
         const viewTop = -viewOffsetY / scale;
         const viewRight = (canvas.width - viewOffsetX) / scale;
         const viewBottom = (canvas.height - viewOffsetY) / scale;
-
         const startX = Math.floor(viewLeft / GRID_SIZE) * GRID_SIZE;
         const startY = Math.floor(viewTop / GRID_SIZE) * GRID_SIZE;
 
         for (let x = startX; x < viewRight; x += GRID_SIZE) {
-            ctx.beginPath();
-            ctx.moveTo(x, viewTop);
-            ctx.lineTo(x, viewBottom);
-            ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x, viewTop); ctx.lineTo(x, viewBottom); ctx.stroke();
         }
         for (let y = startY; y < viewBottom; y += GRID_SIZE) {
-            ctx.beginPath();
-            ctx.moveTo(viewLeft, y);
-            ctx.lineTo(viewRight, y);
-            ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(viewLeft, y); ctx.lineTo(viewRight, y); ctx.stroke();
         }
     }
 
@@ -202,7 +198,6 @@
 
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
         ctx.save();
         ctx.translate(viewOffsetX, viewOffsetY);
         ctx.scale(scale, scale);
@@ -211,18 +206,27 @@
         const defaultColor = '#f6e05e';
 
         componentFunctions.forEach(func => {
-            if (func.type === '相通' && func.connectors.length > 1) {
+            let color = null;
+            let dash = [3, 3];
+            switch(func.type) {
+                case '相通': color = '#f472b6'; break;
+                case 'coil': color = '#60a5fa'; dash = [4,4]; break;
+                case 'a-contact': color = '#4ade80'; dash = [4,4]; break;
+                case 'b-contact': color = '#f87171'; dash = [4,4]; break;
+            }
+
+            if (color) {
                 const connectorsInGroup = func.connectors.map(id => drawingElements.find(el => el.id === id)).filter(Boolean);
                 if (connectorsInGroup.length > 1) {
-                    ctx.save(); ctx.strokeStyle = '#f472b6'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5 / scale;
-                    for (let i = 0; i < connectorsInGroup.length - 1; i++) {
-                         for (let j = i + 1; j < connectorsInGroup.length; j++) {
-                            ctx.beginPath();
-                            ctx.moveTo(connectorsInGroup[i].x, connectorsInGroup[i].y);
-                            ctx.lineTo(connectorsInGroup[j].x, connectorsInGroup[j].y);
-                            ctx.stroke();
-                         }
-                    }
+                    ctx.save(); ctx.strokeStyle = color; ctx.setLineDash(dash.map(d => d / scale)); ctx.lineWidth = 1.5 / scale;
+                     for (let i = 0; i < connectorsInGroup.length; i++) {
+                        for (let j = i + 1; j < connectorsInGroup.length; j++) {
+                           ctx.beginPath();
+                           ctx.moveTo(connectorsInGroup[i].x, connectorsInGroup[i].y);
+                           ctx.lineTo(connectorsInGroup[j].x, connectorsInGroup[j].y);
+                           ctx.stroke();
+                        }
+                     }
                     ctx.restore();
                 }
             }
@@ -311,6 +315,13 @@
         const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
         addFunctionBtn.disabled = selectedConnectors.length < 2;
         rotateBtn.disabled = selectedElements.length === 0;
+
+        // Update modal buttons based on selection
+        const isExactlyTwo = selectedConnectors.length === 2;
+        funcCoilBtn.disabled = !isExactlyTwo;
+        funcAContactBtn.disabled = !isExactlyTwo;
+        funcBContactBtn.disabled = !isExactlyTwo;
+        funcConductiveBtn.disabled = selectedConnectors.length < 2;
     }
 
     const snapToIntersection = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
@@ -355,16 +366,11 @@
 
     canvas.addEventListener('mousedown', e => {
         if (e.button === 1) { // Middle mouse button for panning
-            isPanning = true;
-            panStart = { x: e.clientX, y: e.clientY };
-            canvas.style.cursor = 'grabbing';
-            e.preventDefault();
-            return;
+            isPanning = true; panStart = { x: e.clientX, y: e.clientY }; canvas.style.cursor = 'grabbing'; e.preventDefault(); return;
         }
 
         const worldPos = screenToWorld(e.offsetX, e.offsetY);
-        startPos = worldPos;
-        currentPos = worldPos;
+        startPos = worldPos; currentPos = worldPos;
 
         if (resizingElement) {
             const handle = getHandleAtPos(startPos.x, startPos.y, resizingElement);
@@ -380,18 +386,12 @@
         }
 
         if (['line', 'rect'].includes(activeTool)) {
-            isDrawing = true;
-            if (activeTool === 'rect') { startPos.x = snapToIntersection(startPos.x); startPos.y = snapToIntersection(startPos.y); }
-            currentPos = { ...startPos };
+            isDrawing = true; if (activeTool === 'rect') { startPos.x = snapToIntersection(startPos.x); startPos.y = snapToIntersection(startPos.y); } currentPos = { ...startPos };
         } else if (activeTool === 'select') {
             const clickedElement = getElementAtPos(startPos.x, startPos.y);
             if (clickedElement) {
-                if (e.shiftKey) {
-                    const index = selectedElements.indexOf(clickedElement);
-                    if (index > -1) selectedElements.splice(index, 1); else selectedElements.push(clickedElement);
-                } else if (!selectedElements.includes(clickedElement)) {
-                    selectedElements = [clickedElement];
-                }
+                if (e.shiftKey) { const index = selectedElements.indexOf(clickedElement); if (index > -1) selectedElements.splice(index, 1); else selectedElements.push(clickedElement); } 
+                else if (!selectedElements.includes(clickedElement)) { selectedElements = [clickedElement]; }
                 isDragging = true; dragStartPositions.clear();
                 selectedElements.forEach(el => dragStartPositions.set(el, {id: el.id, x: el.x, y: el.y, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 }));
                 dragOffset = { ...startPos };
@@ -515,7 +515,12 @@
              const elToDelete = getElementAtPos(clickPos.x, clickPos.y);
              if (elToDelete) {
                  const deletedIds = new Set([elToDelete.id]);
-                 componentFunctions = componentFunctions.filter(func => !func.connectors.some(id => deletedIds.has(id)));
+                 componentFunctions = componentFunctions.filter(func => {
+                     const newConnectors = func.connectors.filter(id => !deletedIds.has(id));
+                     if (newConnectors.length < 2) return false;
+                     func.connectors = newConnectors;
+                     return true;
+                 });
                  drawingElements = drawingElements.filter(el => el !== elToDelete);
              }
          }
@@ -556,10 +561,10 @@
         textEditor.style.display = 'block';
         textEditor.style.left = `${screenPos.x}px`;
         textEditor.style.top = `${screenPos.y}px`;
-        const originalFontSize = parseInt(el.font.match(/(\d+)px/)[1] || 16);
+        const originalFontSize = parseInt((el.font || '16px').match(/(\d+)px/)[1] || 16);
         textEditor.style.font = el.font;
         textEditor.style.fontSize = `${originalFontSize * scale}px`;
-        ctx.font = el.font;
+        ctx.font = el.font || '16px sans-serif';
         textEditor.style.width = `${ctx.measureText(el.content).width * scale + 20}px`;
         textEditor.value = el.content;
         textEditor.focus();
@@ -578,6 +583,7 @@
 
     addFunctionBtn.addEventListener('click', (e) => {
         if (addFunctionBtn.disabled) return;
+        updateActionButtonsState(); // Ensure modal buttons are correctly enabled/disabled
         const rect = addFunctionBtn.getBoundingClientRect(); functionModal.classList.remove('hidden');
         const modalRect = functionModal.getBoundingClientRect();
         functionModal.style.left = `${rect.left + (rect.width / 2) - (modalRect.width / 2)}px`;
@@ -604,18 +610,43 @@
         });
         draw();
     });
-
-    funcConductiveBtn.addEventListener('click', () => {
+    
+    function addFunction(type) {
         const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
         if (selectedConnectors.length < 2) return;
-        const selectedIds = new Set(selectedConnectors.map(c => c.id));
-        let groupsToMerge = [], remainingFunctions = [];
-        componentFunctions.forEach(func => { if (func.type === '相通' && func.connectors.some(id => selectedIds.has(id))) groupsToMerge.push(func); else remainingFunctions.push(func); });
-        const mergedIds = new Set(selectedIds);
-        groupsToMerge.forEach(group => group.connectors.forEach(id => mergedIds.add(id)));
-        componentFunctions = [...remainingFunctions, { type: '相通', connectors: Array.from(mergedIds).sort((a, b) => a - b) }];
-        functionModal.classList.add('hidden'); selectedElements = []; updateActionButtonsState(); draw();
-    });
+
+        const selectedIds = selectedConnectors.map(c => c.id).sort((a, b) => a - b);
+        
+        if (type === '相通') {
+             let groupsToMerge = [], remainingFunctions = [];
+             const idSet = new Set(selectedIds);
+             componentFunctions.forEach(func => {
+                 if (func.type === '相通' && func.connectors.some(id => idSet.has(id))) {
+                     groupsToMerge.push(func);
+                 } else {
+                     remainingFunctions.push(func);
+                 }
+             });
+             const mergedIds = new Set(selectedIds);
+             groupsToMerge.forEach(group => group.connectors.forEach(id => mergedIds.add(id)));
+             componentFunctions = [...remainingFunctions, { type: '相通', connectors: Array.from(mergedIds).sort((a, b) => a - b) }];
+        } else {
+            if (selectedIds.length !== 2) return;
+             // For relay functions, just add them. They can overlap.
+            componentFunctions.push({ type, connectors: selectedIds });
+        }
+
+        functionModal.classList.add('hidden'); 
+        selectedElements = []; 
+        updateActionButtonsState(); 
+        draw();
+    }
+
+    funcConductiveBtn.addEventListener('click', () => addFunction('相通'));
+    funcCoilBtn.addEventListener('click', () => addFunction('coil'));
+    funcAContactBtn.addEventListener('click', () => addFunction('a-contact'));
+    funcBContactBtn.addEventListener('click', () => addFunction('b-contact'));
+
 
     window.addEventListener('click', (e) => {
         if (!functionModal.classList.contains('hidden') && e.target.id !== 'add-function-btn' && !functionModal.contains(e.target)) {
@@ -625,10 +656,17 @@
 
     window.addEventListener('keydown', e => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || editingTextElement) return;
+
+        if (e.key === 'Escape') {
+            if (['line', 'rect', 'text', 'connector', 'delete'].includes(activeTool)) {
+                 setActiveTool('select');
+            }
+        }
+
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectedElements.length > 0) {
                 const deletedIds = new Set(selectedElements.map(el => el.id));
-                componentFunctions = componentFunctions.map(func => ({...func, connectors: func.connectors.filter(id => !deletedIds.has(id))})).filter(func => func.type !== '相通' || func.connectors.length > 1);
+                componentFunctions = componentFunctions.map(func => ({...func, connectors: func.connectors.filter(id => !deletedIds.has(id))})).filter(func => func.connectors.length > 1);
                 drawingElements = drawingElements.filter(el => !selectedElements.includes(el));
                 selectedElements = []; updateActionButtonsState(); draw();
             }
@@ -645,10 +683,40 @@
         connectors.forEach(c => connectorIdToLabel.set(c.id, c.label || `C${tempConnectorCount++}`));
         
         const dataBlock = `/* --- MAKER DATA ---\n${JSON.stringify({ drawingElements, componentFunctions }, null, 2)}\n--- END MAKER DATA --- */`;
-        let rebuildConnectorsCode = `_rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}}`;
-        let drawCode = `draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0); ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX, relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); }`;
-        let logicCode = `updateLogic() { ${componentFunctions.filter(f => f.type === '相通').map(func => { const labels = func.connectors.map(id => connectorIdToLabel.get(id)).filter(Boolean); if (labels.length < 2) return ''; const gets = labels.map(l => `const c_${l}=this.getConnectorByPole('${l}');`).join(''); const checks = labels.map(l => `c_${l}.potential`).join(','); const sets = labels.map(l => `c_${l}.potential=maxPotential;`).join(''); return `{${gets}if([${labels.map(l=>`c_${l}`).join(',')}].some(c=>!c))return;const maxPotential=Math.max(${checks},0);if(maxPotential>0){${sets}}}`; }).join('')}}`;
-        let fullClassCode = `${dataBlock}\n\nclass CustomComponent extends Component { static instanceCount=0; constructor(x,y){super(x,y,'customComponent');this.instanceNumber=++CustomComponent.instanceCount;this._updateDimensions();this._rebuildConnectors();} _updateDimensions(){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;const elements=${JSON.stringify(drawingElements)};if(elements.length===0){this.width=0;this.height=0;return}elements.forEach(el=>{minX=Math.min(minX,el.x,el.x1||el.x,el.x2||el.x);minY=Math.min(minY,el.y,el.y1||el.y,el.y2||el.y);maxX=Math.max(maxX,el.x+(el.width||0),el.x1||el.x,el.x2||el.x);maxY=Math.max(maxY,el.y+(el.height||0),el.y1||el.y,el.y2||el.y)});this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};} getConnectorByPole(pole){return this.connectors.find(c=>c.pole===pole);} ${rebuildConnectorsCode} ${drawCode} ${logicCode} toggle(){console.log('Toggled!')}}`;
+        
+        const connectLogic = (labels, prefix = 'c') => {
+            if (labels.length < 2) return '';
+            const gets = labels.map(l => `const ${prefix}_${l}=this.getConnectorByPole('${l}');`).join('');
+            const allConnectors = `[${labels.map(l => `${prefix}_${l}`).join(',')}]`;
+            const potentialChecks = labels.map(l => `${prefix}_${l}.potential`).join(',');
+            return `{${gets} if(${allConnectors}.every(c=>c)){const maxPotential=Math.max(${potentialChecks});if(maxPotential>0){${allConnectors}.forEach(c=>c.potential=maxPotential);}}}`;
+        };
+        
+        let logicCode = `updateLogic() {
+    this.isEnergized = this.isEnergized ?? false;
+    // --- Relay Logic: Determine if coil is energized ---
+    let isEnergized = false;
+    ${componentFunctions.filter(f => f.type === 'coil').map(func => {
+        const labels = func.connectors.map(id => connectorIdToLabel.get(id)).filter(Boolean);
+        if (labels.length !== 2) return '';
+        const [l1, l2] = labels;
+        return `const coil_c1 = this.getConnectorByPole('${l1}'); const coil_c2 = this.getConnectorByPole('${l2}'); if (coil_c1 && coil_c2 && coil_c1.potential !== coil_c2.potential) { isEnergized = true; }`;
+    }).join('')}
+    this.isEnergized = isEnergized;
+
+    // --- A-Contact Logic (Normally Open) ---
+    if (this.isEnergized) {
+        ${componentFunctions.filter(f => f.type === 'a-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'ac')).join('')}
+    }
+    // --- B-Contact Logic (Normally Closed) ---
+    if (!this.isEnergized) {
+        ${componentFunctions.filter(f => f.type === 'b-contact').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'bc')).join('')}
+    }
+    // --- Simple Conductive Logic ---
+    ${componentFunctions.filter(f => f.type === '相通').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'cond')).join('')}
+}`;
+
+        let fullClassCode = `${dataBlock}\n\nclass CustomComponent extends Component { static instanceCount=0; constructor(x,y){super(x,y,'customComponent');this.instanceNumber=++CustomComponent.instanceCount;this.isEnergized=false;this._updateDimensions();this._rebuildConnectors();} _updateDimensions(){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;const elements=${JSON.stringify(drawingElements)};if(elements.length===0){this.width=0;this.height=0;return}elements.forEach(el=>{minX=Math.min(minX,el.x,el.x1||el.x,el.x2||el.x);minY=Math.min(minY,el.y,el.y1||el.y,el.y2||el.y);maxX=Math.max(maxX,el.x+(el.width||0),el.x1||el.x,el.x2||el.x);maxY=Math.max(maxY,el.y+(el.height||0),el.y1||el.y,el.y2||el.y)});this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};} getConnectorByPole(pole){return this.connectors.find(c=>c.pole===pole);} _rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}} draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized; ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX, relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); } ${logicCode} toggle(){console.log('Toggled!')}}`;
         codeArea.value = fullClassCode;
 
         try { codeArea.focus(); codeArea.select(); const successful = document.execCommand('copy'); const originalText = exportBtn.innerHTML; if (successful) { exportBtn.innerHTML = '✅ 已複製!'; } else { exportBtn.innerHTML = '❌ 複製失敗'; } setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); } catch (err) { console.error('複製時發生錯誤:', err); const originalText = exportBtn.innerHTML; exportBtn.innerHTML = '❌ 複製失敗'; setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); }
