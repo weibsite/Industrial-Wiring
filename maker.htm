@@ -65,9 +65,10 @@
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded active" data-type="select">移動/選取</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="line">畫線</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="rect">畫矩形</button>
+                <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="circle">畫圓形</button>
                 <button class="tool-item bg-gray-700 hover:bg-gray-600 p-2 rounded" data-type="text">文字</button>
                 <button class="tool-item bg-green-700 hover:bg-green-600 p-2 rounded" data-type="connector">接點</button>
-                <button class="tool-item bg-red-700 hover:bg-red-600 p-2 rounded" data-type="delete">刪除</button>
+                <button class="tool-item bg-red-700 hover:bg-red-600 p-2 rounded col-span-2" data-type="delete">刪除</button>
             </div>
         </div>
 
@@ -264,6 +265,11 @@
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.font = `${14 / scale}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
                     ctx.fillText(`${gridWidth} x ${gridHeight}`, rect.x + rect.width + (5/scale), rect.y + rect.height);
                  }
+             } else if (activeTool === 'circle') {
+                const radius = Math.hypot(currentPos.x - startPos.x, currentPos.y - startPos.y);
+                ctx.beginPath();
+                ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
+                ctx.stroke();
              }
              ctx.restore();
         }
@@ -288,6 +294,7 @@
         switch (el.type) {
             case 'rect': ctx.strokeRect(el.x, el.y, el.width, el.height); break;
             case 'line': ctx.beginPath(); ctx.moveTo(el.x1, el.y1); ctx.lineTo(el.x2, el.y2); ctx.stroke(); break;
+            case 'circle': ctx.beginPath(); ctx.arc(el.x, el.y, el.radius, 0, Math.PI * 2); ctx.stroke(); break;
             case 'text': ctx.font = el.font || '16px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(el.content, el.x, el.y); break;
             case 'connector':
                 if (!isSelection && el.label) {
@@ -326,6 +333,8 @@
 
     const snapToIntersection = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
     const snapToHalfGrid = (val) => Math.round(val / (GRID_SIZE / 2)) * (GRID_SIZE / 2);
+    const snapToQuarterGrid = (val) => Math.round(val / (GRID_SIZE / 4)) * (GRID_SIZE / 4);
+
     
     function getElementAtPos(worldX, worldY) {
         if (resizingElement && getHandleAtPos(worldX, worldY, resizingElement)) return resizingElement;
@@ -339,6 +348,11 @@
                     if (el.width < tolerance * 2 || el.height < tolerance * 2) return true;
                     const isInsideInner = worldX > el.x + tolerance && worldX < el.x + el.width - tolerance && worldY > el.y + tolerance && worldY < el.y + el.height - tolerance;
                     return !isInsideInner;
+                }
+                case 'circle': {
+                    const dist = Math.hypot(el.x - worldX, el.y - worldY);
+                    const tolerance = 5 / scale;
+                    return Math.abs(dist - el.radius) < tolerance;
                 }
                 case 'text': 
                     ctx.font = el.font || '16px sans-serif';
@@ -385,15 +399,18 @@
             } else { selectedElements = [resizingElement]; }
         }
 
-        if (['line', 'rect'].includes(activeTool)) {
-            isDrawing = true; if (activeTool === 'rect') { startPos.x = snapToIntersection(startPos.x); startPos.y = snapToIntersection(startPos.y); } currentPos = { ...startPos };
+        if (['line', 'rect', 'circle'].includes(activeTool)) {
+            isDrawing = true; 
+            if (activeTool === 'rect') { startPos.x = snapToIntersection(startPos.x); startPos.y = snapToIntersection(startPos.y); } 
+            else if (activeTool === 'circle') { startPos.x = snapToQuarterGrid(startPos.x); startPos.y = snapToQuarterGrid(startPos.y); }
+            currentPos = { ...startPos };
         } else if (activeTool === 'select') {
             const clickedElement = getElementAtPos(startPos.x, startPos.y);
             if (clickedElement) {
                 if (e.shiftKey) { const index = selectedElements.indexOf(clickedElement); if (index > -1) selectedElements.splice(index, 1); else selectedElements.push(clickedElement); } 
                 else if (!selectedElements.includes(clickedElement)) { selectedElements = [clickedElement]; }
                 isDragging = true; dragStartPositions.clear();
-                selectedElements.forEach(el => dragStartPositions.set(el, {id: el.id, x: el.x, y: el.y, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 }));
+                selectedElements.forEach(el => dragStartPositions.set(el, {id: el.id, x: el.x, y: el.y, radius: el.radius, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 }));
                 dragOffset = { ...startPos };
             } else {
                 if (!e.shiftKey) selectedElements = [];
@@ -484,6 +501,11 @@
             } else if (activeTool === 'rect') {
                 const rect = getMarqueeRect();
                 if (rect.width > 0 && rect.height > 0) drawingElements.push({ id: ++elementIdCounter, type: 'rect', ...rect });
+            } else if (activeTool === 'circle') {
+                const radius = snapToQuarterGrid(Math.hypot(currentPos.x - startPos.x, currentPos.y - startPos.y));
+                if (radius > 0) {
+                    drawingElements.push({ id: ++elementIdCounter, type: 'circle', x: startPos.x, y: startPos.y, radius: radius });
+                }
             }
         } else if (isDragging) { isDragging = false; dragStartPositions.clear();
         } else if (isMarqueeSelecting) {
@@ -492,6 +514,7 @@
             drawingElements.filter(el => {
                 let elBox;
                 if(el.type === 'line') elBox = { x: Math.min(el.x1, el.x2), y: Math.min(el.y1, el.y2), width: Math.abs(el.x1-el.x2), height: Math.abs(el.y1-el.y2) }
+                else if (el.type === 'circle') elBox = { x: el.x - el.radius, y: el.y - el.radius, width: el.radius * 2, height: el.radius * 2 }
                 else { const textWidth = el.type === 'text' ? ctx.measureText(el.content).width : (el.width || 0); elBox = { x: el.x, y: el.y, width: textWidth, height: el.height || 16} }
                 return marquee.x < elBox.x + elBox.width && marquee.x + marquee.width > elBox.x && marquee.y < elBox.y + elBox.height && marquee.y + marquee.height > elBox.y;
             }).forEach(el => !selectedElements.includes(el) && selectedElements.push(el));
@@ -597,6 +620,7 @@
         selectedElements.forEach(el => {
             if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); maxX = Math.max(maxX, el.x1, el.x2); maxY = Math.max(maxY, el.y1, el.y2); } 
             else if (el.type === 'rect') { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height); } 
+            else if (el.type === 'circle') { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); }
             else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x); maxY = Math.max(maxY, el.y); }
         });
 
@@ -604,7 +628,7 @@
         const rotatePoint = (x, y, ox, oy) => ({ x: ox - (y - oy), y: oy + (x - ox) });
 
         selectedElements.forEach(el => {
-            if (el.type === 'connector' || el.type === 'text') { const newPos = rotatePoint(el.x, el.y, pivotX, pivotY); el.x = snapToHalfGrid(newPos.x); el.y = snapToHalfGrid(newPos.y); } 
+            if (el.type === 'connector' || el.type === 'text' || el.type === 'circle') { const newPos = rotatePoint(el.x, el.y, pivotX, pivotY); el.x = snapToHalfGrid(newPos.x); el.y = snapToHalfGrid(newPos.y); } 
             else if (el.type === 'line') { const newP1 = rotatePoint(el.x1, el.y1, pivotX, pivotY); const newP2 = rotatePoint(el.x2, el.y2, pivotX, pivotY); el.x1 = snapToHalfGrid(newP1.x); el.y1 = snapToHalfGrid(newP1.y); el.x2 = snapToHalfGrid(newP2.x); el.y2 = snapToHalfGrid(newP2.y); } 
             else if (el.type === 'rect') { const newCenter = rotatePoint(el.x + el.width / 2, el.y + el.height / 2, pivotX, pivotY); const oldWidth = el.width; el.width = el.height; el.height = oldWidth; el.x = snapToHalfGrid(newCenter.x - el.width / 2); el.y = snapToHalfGrid(newCenter.y - el.height / 2); }
         });
@@ -658,7 +682,7 @@
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || editingTextElement) return;
 
         if (e.key === 'Escape') {
-            if (['line', 'rect', 'text', 'connector', 'delete'].includes(activeTool)) {
+            if (['line', 'rect', 'circle', 'text', 'connector', 'delete'].includes(activeTool)) {
                  setActiveTool('select');
             }
         }
@@ -676,7 +700,18 @@
     exportBtn.addEventListener('click', () => {
         if (drawingElements.length === 0) { codeArea.value = "畫布上沒有任何元件可供輸出。"; return; }
         let minX = Infinity, minY = Infinity;
-        drawingElements.forEach(el => { minX = Math.min(minX, el.x, el.x1 || el.x); minY = Math.min(minY, el.y, el.y1 || el.y); });
+        drawingElements.forEach(el => { 
+            if (el.type === 'line') {
+                minX = Math.min(minX, el.x1, el.x2); 
+                minY = Math.min(minY, el.y1, el.y2);
+            } else if (el.type === 'circle') {
+                minX = Math.min(minX, el.x - el.radius);
+                minY = Math.min(minY, el.y - el.radius);
+            } else {
+                minX = Math.min(minX, el.x); 
+                minY = Math.min(minY, el.y); 
+            }
+        });
 
         const connectors = drawingElements.filter(el => el.type === 'connector');
         const connectorIdToLabel = new Map(); let tempConnectorCount = 1;
@@ -715,8 +750,9 @@
     // --- Simple Conductive Logic ---
     ${componentFunctions.filter(f => f.type === '相通').map(func => connectLogic(func.connectors.map(id => connectorIdToLabel.get(id)), 'cond')).join('')}
 }`;
+        const drawCode = `draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized; ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX; const relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'circle': return `ctx.beginPath();ctx.arc(this.x+${relX},this.y+${relY},${el.radius},0,Math.PI*2);ctx.stroke();`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); }`;
 
-        let fullClassCode = `${dataBlock}\n\nclass CustomComponent extends Component { static instanceCount=0; constructor(x,y){super(x,y,'customComponent');this.instanceNumber=++CustomComponent.instanceCount;this.isEnergized=false;this._updateDimensions();this._rebuildConnectors();} _updateDimensions(){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;const elements=${JSON.stringify(drawingElements)};if(elements.length===0){this.width=0;this.height=0;return}elements.forEach(el=>{minX=Math.min(minX,el.x,el.x1||el.x,el.x2||el.x);minY=Math.min(minY,el.y,el.y1||el.y,el.y2||el.y);maxX=Math.max(maxX,el.x+(el.width||0),el.x1||el.x,el.x2||el.x);maxY=Math.max(maxY,el.y+(el.height||0),el.y1||el.y,el.y2||el.y)});this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};} getConnectorByPole(pole){return this.connectors.find(c=>c.pole===pole);} _rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}} draw(ctx) { const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized; ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2; ${drawingElements.map(el => { if (el.type === 'connector') return ''; const relX = el.x - minX, relY = el.y - minY; switch(el.type) { case 'rect': return `ctx.strokeRect(this.x+${relX},this.y+${relY},${el.width},${el.height});`; case 'line': return `ctx.beginPath();ctx.moveTo(this.x+${el.x1 - minX},this.y+${el.y1 - minY});ctx.lineTo(this.x+${el.x2-minX},this.y+${el.y2-minY});ctx.stroke();`; case 'text': return `ctx.font='${el.font}';ctx.fillText(${el.content.includes('(X)') ? `\`${el.content.replaceAll('(X)', `\${this.instanceNumber}`)}\`` : `'${el.content.replace(/'/g, "\\'")}'`},this.x+${relX},this.y+${relY});`; default: return ''; } }).filter(Boolean).join('')} this.connectors.forEach(c => drawConnector(ctx, c)); } ${logicCode} toggle(){console.log('Toggled!')}}`;
+        let fullClassCode = `${dataBlock}\n\nclass CustomComponent extends Component { static instanceCount=0; constructor(x,y){super(x,y,'customComponent');this.instanceNumber=++CustomComponent.instanceCount;this.isEnergized=false;this._updateDimensions();this._rebuildConnectors();} _updateDimensions(){let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;const elements=${JSON.stringify(drawingElements)};if(elements.length===0){this.width=0;this.height=0;return}elements.forEach(el=>{ if (el.type === 'line') { minX = Math.min(minX, el.x1, el.x2); minY = Math.min(minY, el.y1, el.y2); maxX = Math.max(maxX, el.x1, el.x2); maxY = Math.max(maxY, el.y1, el.y2); } else if (el.type === 'rect') { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height); } else if (el.type === 'circle') { minX = Math.min(minX, el.x - el.radius); minY = Math.min(minY, el.y - el.radius); maxX = Math.max(maxX, el.x + el.radius); maxY = Math.max(maxY, el.y + el.radius); } else { minX = Math.min(minX, el.x); minY = Math.min(minY, el.y); maxX = Math.max(maxX, el.x); maxY = Math.max(maxY, el.y); } });this.width=Math.ceil((maxX-minX)/${GRID_SIZE})*${GRID_SIZE};this.height=Math.ceil((maxY-minY)/${GRID_SIZE})*${GRID_SIZE};} getConnectorByPole(pole){return this.connectors.find(c=>c.pole===pole);} _rebuildConnectors() { this.connectors = []; ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${connectorIdToLabel.get(c.id)}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${connectorIdToLabel.get(c.id)}', potential: 0 });`).join('')}} ${drawCode} ${logicCode} toggle(){console.log('Toggled!')}}`;
         codeArea.value = fullClassCode;
 
         try { codeArea.focus(); codeArea.select(); const successful = document.execCommand('copy'); const originalText = exportBtn.innerHTML; if (successful) { exportBtn.innerHTML = '✅ 已複製!'; } else { exportBtn.innerHTML = '❌ 複製失敗'; } setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); } catch (err) { console.error('複製時發生錯誤:', err); const originalText = exportBtn.innerHTML; exportBtn.innerHTML = '❌ 複製失敗'; setTimeout(() => { exportBtn.innerHTML = originalText; }, 2000); }
