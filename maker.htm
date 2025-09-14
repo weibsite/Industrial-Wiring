@@ -40,6 +40,10 @@
             font-family: 'Inter', '微軟正黑體', sans-serif;
             z-index: 100;
         }
+        /* Style for disabled button */
+        button:disabled {
+            @apply opacity-50 cursor-not-allowed;
+        }
     </style>
 </head>
 <body class="bg-gray-800 text-white h-screen flex flex-col md:flex-row overflow-hidden">
@@ -67,7 +71,8 @@
             </div>
         </div>
 
-        <div>
+        <div class="flex flex-col gap-2">
+            <button id="add-function-btn" class="w-full bg-purple-600 hover:bg-purple-500 p-3 rounded-lg font-bold text-lg shadow-md">新增功能</button>
             <button id="export-btn" class="w-full bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-bold text-lg shadow-md">🚀 產生程式碼</button>
         </div>
         
@@ -78,6 +83,16 @@
              </div>
         </div>
     </div>
+    
+    <!-- Function Modal -->
+    <div id="function-modal" class="hidden absolute z-50 bg-gray-700 rounded-lg shadow-xl p-4 w-64 border border-gray-500">
+        <h3 class="text-lg font-bold mb-4 text-white">選擇功能</h3>
+        <div class="flex flex-col gap-2">
+            <button id="func-conductive-btn" class="w-full text-left bg-gray-600 hover:bg-gray-500 p-2 rounded text-white">相通</button>
+            <!-- Future function buttons can be added here -->
+        </div>
+    </div>
+
 
 <script>
     const canvas = document.getElementById('canvas');
@@ -85,10 +100,17 @@
     const canvasWrapper = document.getElementById('canvas-wrapper');
     const textEditor = document.getElementById('text-editor');
     const exportBtn = document.getElementById('export-btn');
+    const addFunctionBtn = document.getElementById('add-function-btn');
     const codeOutput = document.getElementById('code-output');
+    const functionModal = document.getElementById('function-modal');
+    const funcConductiveBtn = document.getElementById('func-conductive-btn');
+
 
     const GRID_SIZE = 20;
+    const HANDLE_SIZE = 8; // For resizing
     let drawingElements = [];
+    let componentFunctions = [];
+    let elementIdCounter = 0;
     let activeTool = 'select';
     let selectedElements = [];
     let editingTextElement = null;
@@ -98,6 +120,9 @@
     let isDrawing = false;
     let isDragging = false;
     let isMarqueeSelecting = false;
+    let isResizing = false;
+    let resizingElement = null;
+    let resizeHandle = null;
     let startPos = {x:0, y:0};
     let currentPos = {x:0, y:0};
     let dragOffset = {x:0, y:0};
@@ -128,15 +153,68 @@
         }
     }
 
+    // --- Resizing Helper Functions ---
+    function getResizeHandles(el) {
+        if (!el || el.type !== 'rect') return {};
+        const x = el.x;
+        const y = el.y;
+        const w = el.width;
+        const h = el.height;
+        const hs = HANDLE_SIZE / 2;
+        return {
+            'top-left':     { x: x - hs, y: y - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'top':          { x: x + w/2 - hs, y: y - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'top-right':    { x: x + w - hs, y: y - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'left':         { x: x - hs, y: y + h/2 - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'right':        { x: x + w - hs, y: y + h/2 - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'bottom-left':  { x: x - hs, y: y + h - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'bottom':       { x: x + w/2 - hs, y: y + h - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+            'bottom-right': { x: x + w - hs, y: y + h - hs, width: HANDLE_SIZE, height: HANDLE_SIZE },
+        };
+    }
+
+    function getHandleAtPos(posX, posY, el) {
+        const handles = getResizeHandles(el);
+        for (const name in handles) {
+            const h = handles[name];
+            if (posX >= h.x && posX <= h.x + h.width && posY >= h.y && posY <= h.y + h.height) {
+                return name;
+            }
+        }
+        return null;
+    }
+
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawGrid();
 
         const defaultColor = '#f6e05e';
 
+        // Draw "相通" function lines
+        componentFunctions.forEach(func => {
+            if (func.type === '相通' && func.connectors.length > 1) {
+                const connectorsInGroup = func.connectors.map(id => drawingElements.find(el => el.id === id)).filter(Boolean);
+                if (connectorsInGroup.length > 1) {
+                    const firstConnector = connectorsInGroup[0];
+                    for (let i = 1; i < connectorsInGroup.length; i++) {
+                        const otherConnector = connectorsInGroup[i];
+                        ctx.save();
+                        ctx.strokeStyle = '#f472b6'; // Pink
+                        ctx.setLineDash([3, 3]);
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.moveTo(firstConnector.x, firstConnector.y);
+                        ctx.lineTo(otherConnector.x, otherConnector.y);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+        });
+
         // Draw all elements
         drawingElements.forEach(el => {
-            if (el === editingTextElement) return; // Don't draw text being edited
+            if (el === editingTextElement) return;
             ctx.save();
             ctx.strokeStyle = defaultColor;
             ctx.lineWidth = 2;
@@ -158,6 +236,19 @@
             ctx.restore();
         }
 
+        // Draw resize handles
+        if (resizingElement) {
+            ctx.save();
+            ctx.fillStyle = '#38bdf8'; // sky-500
+            const handles = getResizeHandles(resizingElement);
+            for (const handle in handles) {
+                const h = handles[handle];
+                ctx.fillRect(h.x, h.y, h.width, h.height);
+            }
+            ctx.restore();
+        }
+
+
         // Draw drawing previews (line, rect)
         if (isDrawing) {
              ctx.save();
@@ -170,7 +261,19 @@
                  ctx.lineTo(currentPos.x, currentPos.y);
                  ctx.stroke();
              } else if (activeTool === 'rect') {
-                 ctx.strokeRect(startPos.x, startPos.y, currentPos.x - startPos.x, currentPos.y - startPos.y);
+                 const rect = getMarqueeRect();
+                 ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+                 if (rect.width > 0 && rect.height > 0) {
+                    const gridWidth = Math.round(rect.width / GRID_SIZE);
+                    const gridHeight = Math.round(rect.height / GRID_SIZE);
+                    const sizeText = `${gridWidth} x ${gridHeight}`;
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    ctx.font = '14px sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText(sizeText, rect.x + rect.width + 5, rect.y + rect.height);
+                 }
              }
              ctx.restore();
         }
@@ -191,7 +294,7 @@
         if (connectorPreviewPos && activeTool === 'connector') {
             ctx.save();
             ctx.globalAlpha = 0.6;
-            ctx.strokeStyle = '#38bdf8'; // A preview color
+            ctx.strokeStyle = '#38bdf8';
             drawElement(ctx, { type: 'connector', x: connectorPreviewPos.x, y: connectorPreviewPos.y, label: '' });
             ctx.restore();
         }
@@ -215,14 +318,13 @@
                 ctx.fillText(el.content, el.x, el.y);
                 break;
             case 'connector':
-                if (!isSelection && el.label) { // Dont fill text on selection highlight
+                if (!isSelection && el.label) {
                     ctx.font = '12px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#a0aec0'; // label color
+                    ctx.fillStyle = '#a0aec0';
                     ctx.fillText(el.label, el.x, el.y + 15);
                 }
-                 // Draw circle with cross
                 const radius = 6;
                 ctx.beginPath();
                 ctx.arc(el.x, el.y, radius, 0, Math.PI * 2);
@@ -241,7 +343,9 @@
         document.querySelector(`.tool-item[data-type="${toolType}"]`)?.classList.add('active');
         activeTool = toolType;
         selectedElements = [];
+        resizingElement = null; // Exit resize mode when changing tool
         connectorPreviewPos = null;
+        updateFunctionButtonState();
         draw();
     }
 
@@ -249,17 +353,26 @@
         btn.addEventListener('click', () => setActiveTool(btn.dataset.type));
     });
 
+    function updateFunctionButtonState() {
+        const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
+        addFunctionBtn.disabled = selectedConnectors.length < 2;
+    }
+
 
     // --- Canvas Event Handlers ---
     const snapToIntersection = (val) => Math.round(val / GRID_SIZE) * GRID_SIZE;
     const snapToHalfGrid = (val) => Math.round(val / (GRID_SIZE / 2)) * (GRID_SIZE / 2);
     
     function getElementAtPos(x, y) {
+        // Prioritize checking for resize handles if in resize mode
+        if (resizingElement && getHandleAtPos(x, y, resizingElement)) {
+            return resizingElement;
+        }
         return [...drawingElements].reverse().find(el => {
             switch(el.type) {
                 case 'rect': return x >= el.x && x <= el.x + el.width && y >= el.y && y <= el.y + el.height;
                 case 'text': 
-                    ctx.font = el.font || '16px sans-serif'; // Ensure context font is set for measurement
+                    ctx.font = el.font || '16px sans-serif';
                     return x >= el.x && x <= el.x + ctx.measureText(el.content).width && y >= el.y && y <= el.y + 16;
                 case 'connector': return Math.hypot(el.x - x, el.y - y) < 10;
                 case 'line': return pDistance(x, y, el.x1, el.y1, el.x2, el.y2) < 5;
@@ -292,26 +405,61 @@
         const rect = canvas.getBoundingClientRect();
         startPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
         
+        // --- RESIZE START LOGIC ---
+        if (resizingElement) {
+            const handle = getHandleAtPos(startPos.x, startPos.y, resizingElement);
+            if (handle) {
+                isResizing = true;
+                resizeHandle = handle;
+                dragStartPositions.set(resizingElement, { x: resizingElement.x, y: resizingElement.y, width: resizingElement.width, height: resizingElement.height });
+                dragOffset = { x: startPos.x, y: startPos.y };
+                return; // Stop further processing
+            }
+            const elBox = resizingElement;
+            const isClickInside = (startPos.x >= elBox.x && startPos.x <= elBox.x + elBox.width && startPos.y >= elBox.y && startPos.y <= elBox.y + elBox.height);
+            if (!isClickInside) {
+                resizingElement = null; // Exit resize mode and fall through to normal logic
+            } else {
+                selectedElements = [resizingElement]; // Prepare for normal drag
+            }
+        }
+
         if (['line', 'rect'].includes(activeTool)) {
             isDrawing = true;
+            if (activeTool === 'rect') {
+                startPos.x = snapToIntersection(startPos.x);
+                startPos.y = snapToIntersection(startPos.y);
+            }
             currentPos = { ...startPos };
         } else if (activeTool === 'select') {
             const clickedElement = getElementAtPos(startPos.x, startPos.y);
             if (clickedElement) {
-                isDragging = true;
-                if (!selectedElements.includes(clickedElement)) {
-                    selectedElements = [clickedElement];
+                if (e.shiftKey) {
+                    const index = selectedElements.indexOf(clickedElement);
+                    if (index > -1) {
+                        selectedElements.splice(index, 1);
+                    } else {
+                        selectedElements.push(clickedElement);
+                    }
+                } else {
+                    if (!selectedElements.includes(clickedElement)) {
+                        selectedElements = [clickedElement];
+                    }
                 }
+                isDragging = true;
                 dragStartPositions.clear();
                 selectedElements.forEach(el => {
-                    dragStartPositions.set(el, {x: el.x, y: el.y, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 });
+                    dragStartPositions.set(el, {id: el.id, x: el.x, y: el.y, x1: el.x1, y1: el.y1, x2: el.x2, y2: el.y2 });
                 });
                 dragOffset = { x: startPos.x, y: startPos.y };
             } else {
+                if (!e.shiftKey) {
+                    selectedElements = [];
+                }
                 isMarqueeSelecting = true;
-                selectedElements = [];
             }
         }
+        updateFunctionButtonState();
         draw();
     });
 
@@ -320,47 +468,81 @@
         currentPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
         
         let needsRedraw = false;
+        let newCursor = 'default';
 
-        if (activeTool === 'connector') {
-            connectorPreviewPos = { x: snapToIntersection(currentPos.x), y: snapToIntersection(currentPos.y) };
-            needsRedraw = true;
-        } else {
-             if (connectorPreviewPos) needsRedraw = true;
-             connectorPreviewPos = null;
-        }
-        
-        if (isDrawing && activeTool === 'line') {
-            const dx = currentPos.x - startPos.x;
-            const dy = currentPos.y - startPos.y;
-            const angle = Math.atan2(dy, dx);
-            const snapAngle = Math.PI / 12; // 15 degrees
-            const snappedAngle = Math.round(angle / snapAngle) * snapAngle;
-            const dist = Math.hypot(dx, dy);
+        if (isResizing && resizingElement) {
+            const originalRect = dragStartPositions.get(resizingElement);
+            const dx = currentPos.x - dragOffset.x;
+            const dy = currentPos.y - dragOffset.y;
+            let { x, y, width, height } = originalRect;
 
-            currentPos.x = startPos.x + Math.cos(snappedAngle) * dist;
-            currentPos.y = startPos.y + Math.sin(snappedAngle) * dist;
+            if (resizeHandle.includes('right'))   width = snapToIntersection(originalRect.width + dx);
+            if (resizeHandle.includes('bottom'))  height = snapToIntersection(originalRect.height + dy);
+            if (resizeHandle.includes('left')) {
+                const snappedDx = snapToIntersection(dx);
+                x = originalRect.x + snappedDx;
+                width = originalRect.width - snappedDx;
+            }
+            if (resizeHandle.includes('top')) {
+                const snappedDy = snapToIntersection(dy);
+                y = originalRect.y + snappedDy;
+                height = originalRect.height - snappedDy;
+            }
+            resizingElement.x = x; resizingElement.y = y;
+            resizingElement.width = width; resizingElement.height = height;
             needsRedraw = true;
-        } else if (isDrawing || isMarqueeSelecting) {
-            needsRedraw = true; 
         } else if (isDragging) {
             const dx = currentPos.x - dragOffset.x;
             const dy = currentPos.y - dragOffset.y;
-            
             selectedElements.forEach(el => {
                 const start = dragStartPositions.get(el);
                 if (el.type === 'line') {
-                    el.x1 = snapToHalfGrid(start.x1 + dx);
-                    el.y1 = snapToHalfGrid(start.y1 + dy);
-                    el.x2 = snapToHalfGrid(start.x2 + dx);
-                    el.y2 = snapToHalfGrid(start.y2 + dy);
+                    el.x1 = snapToHalfGrid(start.x1 + dx); el.y1 = snapToHalfGrid(start.y1 + dy);
+                    el.x2 = snapToHalfGrid(start.x2 + dx); el.y2 = snapToHalfGrid(start.y2 + dy);
                 } else {
-                    el.x = snapToHalfGrid(start.x + dx);
-                    el.y = snapToHalfGrid(start.y + dy);
+                    el.x = snapToHalfGrid(start.x + dx); el.y = snapToHalfGrid(start.y + dy);
                 }
             });
             needsRedraw = true;
+        } else if (isDrawing) {
+            if (activeTool === 'line') {
+                const dx = currentPos.x - startPos.x; const dy = currentPos.y - startPos.y;
+                const angle = Math.atan2(dy, dx); const snapAngle = Math.PI / 12;
+                const snappedAngle = Math.round(angle / snapAngle) * snapAngle;
+                const dist = Math.hypot(dx, dy);
+                currentPos.x = startPos.x + Math.cos(snappedAngle) * dist;
+                currentPos.y = startPos.y + Math.sin(snappedAngle) * dist;
+            } else if (activeTool === 'rect') {
+                currentPos.x = snapToIntersection(currentPos.x);
+                currentPos.y = snapToIntersection(currentPos.y);
+            }
+            needsRedraw = true;
+        } else if (isMarqueeSelecting) {
+            needsRedraw = true;
         }
 
+        // Set cursor based on state (no dragging)
+        if (resizingElement && !isResizing) {
+            const handle = getHandleAtPos(currentPos.x, currentPos.y, resizingElement);
+            if (handle) {
+                if (handle.includes('left') || handle.includes('right')) newCursor = 'ew-resize';
+                if (handle.includes('top') || handle.includes('bottom')) newCursor = 'ns-resize';
+                if ((handle.includes('top') && handle.includes('left')) || (handle.includes('bottom') && handle.includes('right'))) newCursor = 'nwse-resize';
+                if ((handle.includes('top') && handle.includes('right')) || (handle.includes('bottom') && handle.includes('left'))) newCursor = 'nesw-resize';
+            } else {
+                newCursor = 'move';
+            }
+        }
+        
+        if (activeTool === 'connector') {
+            connectorPreviewPos = { x: snapToIntersection(currentPos.x), y: snapToIntersection(currentPos.y) };
+            needsRedraw = true;
+        } else if (connectorPreviewPos) {
+             connectorPreviewPos = null;
+             needsRedraw = true;
+        }
+
+        canvas.style.cursor = newCursor;
         if(needsRedraw) draw();
     });
 
@@ -372,15 +554,31 @@
     });
     
     canvas.addEventListener('mouseup', e => {
+        if (isResizing) {
+            isResizing = false;
+            resizeHandle = null;
+            if (resizingElement.width < 0) {
+                resizingElement.x += resizingElement.width;
+                resizingElement.width *= -1;
+            }
+            if (resizingElement.height < 0) {
+                resizingElement.y += resizingElement.height;
+                resizingElement.height *= -1;
+            }
+            draw();
+            return;
+        }
         if (isDrawing) {
             isDrawing = false;
-            const snappedEndPos = {x: snapToHalfGrid(currentPos.x), y: snapToHalfGrid(currentPos.y) };
-            const snappedStartPos = {x: snapToHalfGrid(startPos.x), y: snapToHalfGrid(startPos.y) };
             if (activeTool === 'line') {
-                drawingElements.push({ type: 'line', x1: snappedStartPos.x, y1: snappedStartPos.y, x2: snappedEndPos.x, y2: snappedEndPos.y });
+                const snappedEndPos = {x: snapToHalfGrid(currentPos.x), y: snapToHalfGrid(currentPos.y) };
+                const snappedStartPos = {x: snapToHalfGrid(startPos.x), y: snapToHalfGrid(startPos.y) };
+                drawingElements.push({ id: ++elementIdCounter, type: 'line', x1: snappedStartPos.x, y1: snappedStartPos.y, x2: snappedEndPos.x, y2: snappedEndPos.y });
             } else if (activeTool === 'rect') {
                 const rect = getMarqueeRect();
-                drawingElements.push({ type: 'rect', x: snapToHalfGrid(rect.x), y: snapToHalfGrid(rect.y), width: snapToHalfGrid(rect.width), height: snapToHalfGrid(rect.height) });
+                if (rect.width > 0 && rect.height > 0) {
+                    drawingElements.push({ id: ++elementIdCounter, type: 'rect', x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+                }
             }
         } else if (isDragging) {
             isDragging = false;
@@ -388,7 +586,7 @@
         } else if (isMarqueeSelecting) {
             isMarqueeSelecting = false;
             const marquee = getMarqueeRect();
-            selectedElements = drawingElements.filter(el => {
+            const newlySelected = drawingElements.filter(el => {
                 let elBox;
                 if(el.type === 'line') {
                     elBox = { x: Math.min(el.x1, el.x2), y: Math.min(el.y1, el.y2), width: Math.abs(el.x1-el.x2), height: Math.abs(el.y1-el.y2) }
@@ -400,33 +598,39 @@
                 return marquee.x < elBox.x + elBox.width && marquee.x + marquee.width > elBox.x &&
                        marquee.y < elBox.y + elBox.height && marquee.y + marquee.height > elBox.y;
             });
+            newlySelected.forEach(el => {
+                if (!selectedElements.includes(el)) {
+                    selectedElements.push(el);
+                }
+            });
         }
+        updateFunctionButtonState();
         draw();
     });
     
     canvas.addEventListener('click', e => {
-         if (isDragging || isMarqueeSelecting || isDrawing || e.detail > 1) return;
+         if (isDragging || isMarqueeSelecting || isDrawing || e.detail > 1 || isResizing) return;
          const clickPos = {x: e.offsetX, y: e.offsetY};
          
          if (activeTool === 'text') {
             const snappedClickPos = {x: snapToHalfGrid(clickPos.x), y: snapToHalfGrid(clickPos.y)};
             const existingText = getElementAtPos(clickPos.x, clickPos.y);
             if (!existingText || existingText.type !== 'text') {
-                 drawingElements.push({ type: 'text', x: snappedClickPos.x, y: snappedClickPos.y, content: '文字', font: '16px sans-serif' });
+                 drawingElements.push({ id: ++elementIdCounter, type: 'text', x: snappedClickPos.x, y: snappedClickPos.y, content: '文字', font: '16px sans-serif' });
                  setActiveTool('select');
             }
          } else if (activeTool === 'connector') {
              const snappedClickPos = {x: snapToIntersection(clickPos.x), y: snapToIntersection(clickPos.y)};
-             const label = prompt("請輸入接點標籤:", "A1");
-             if (label) {
-                drawingElements.push({ type: 'connector', x: snappedClickPos.x, y: snappedClickPos.y, label });
-             }
+             drawingElements.push({ id: ++elementIdCounter, type: 'connector', x: snappedClickPos.x, y: snappedClickPos.y, label: '' });
          } else if (activeTool === 'delete') {
              const elToDelete = getElementAtPos(clickPos.x, clickPos.y);
              if (elToDelete) {
+                 const deletedIds = new Set([elToDelete.id]);
+                 componentFunctions = componentFunctions.filter(func => !func.connectors.some(id => deletedIds.has(id)));
                  drawingElements = drawingElements.filter(el => el !== elToDelete);
              }
          }
+         updateFunctionButtonState();
          draw();
     });
     
@@ -435,12 +639,22 @@
         const el = getElementAtPos(pos.x, pos.y);
         if (el && el.type === 'text') {
             editText(el);
+        } else if (el && el.type === 'connector') {
+            const newLabel = prompt('請輸入接點標籤:', el.label);
+            if (newLabel !== null) {
+                el.label = newLabel.trim();
+                draw();
+            }
+        } else if (el && el.type === 'rect') {
+            resizingElement = el;
+            selectedElements = []; // Deselect others
+            draw();
         }
     });
 
     function editText(el) {
         editingTextElement = el;
-        selectedElements = []; // Deselect other elements
+        selectedElements = [];
         textEditor.style.display = 'block';
         textEditor.style.left = `${el.x}px`;
         textEditor.style.top = `${el.y}px`;
@@ -453,12 +667,12 @@
 
     textEditor.addEventListener('blur', finishEditing);
     textEditor.addEventListener('keydown', e => {
-        e.stopPropagation(); // ALWAYS stop propagation to prevent window listener from firing
+        e.stopPropagation();
         if (e.key === 'Enter') {
-            e.preventDefault(); // Prevent form submission if any
+            e.preventDefault();
             textEditor.blur();
         } else if (e.key === 'Escape') {
-            editingTextElement = null; // Discard changes
+            textEditor.value = editingTextElement.content;
             textEditor.blur();
         }
     });
@@ -472,38 +686,98 @@
         draw();
     }
 
+    // --- Button & Keyboard Handlers ---
+    addFunctionBtn.addEventListener('click', (e) => {
+        if (addFunctionBtn.disabled) return;
+        const rect = addFunctionBtn.getBoundingClientRect();
+        functionModal.classList.remove('hidden');
+        const modalRect = functionModal.getBoundingClientRect();
+        functionModal.style.left = `${rect.left + (rect.width / 2) - (modalRect.width / 2)}px`;
+        functionModal.style.top = `${rect.top - modalRect.height - 10}px`; 
+        e.stopPropagation();
+    });
 
-    // --- Keyboard & Code Generation ---
+    funcConductiveBtn.addEventListener('click', () => {
+        const selectedConnectors = selectedElements.filter(el => el.type === 'connector');
+        if (selectedConnectors.length < 2) return;
+
+        const selectedIds = new Set(selectedConnectors.map(c => c.id));
+        let groupsToMerge = [];
+        let remainingFunctions = [];
+
+        componentFunctions.forEach(func => {
+            if (func.type === '相通' && func.connectors.some(id => selectedIds.has(id))) {
+                groupsToMerge.push(func);
+            } else {
+                remainingFunctions.push(func);
+            }
+        });
+        const mergedIds = new Set(selectedIds);
+        groupsToMerge.forEach(group => {
+            group.connectors.forEach(id => mergedIds.add(id));
+        });
+        const newFunc = { type: '相通', connectors: Array.from(mergedIds).sort((a, b) => a - b) };
+        componentFunctions = [...remainingFunctions, newFunc];
+        
+        functionModal.classList.add('hidden');
+        selectedElements = [];
+        updateFunctionButtonState();
+        draw();
+    });
+
+    window.addEventListener('click', (e) => {
+        if (!functionModal.classList.contains('hidden') && e.target.id !== 'add-function-btn' && !functionModal.contains(e.target)) {
+            functionModal.classList.add('hidden');
+        }
+    });
+
     window.addEventListener('keydown', e => {
-        if (e.target.tagName === 'INPUT') return; // Ignore key events if an input is focused
+        if (e.target.tagName === 'INPUT' || editingTextElement) return;
 
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (selectedElements.length > 0) {
+                const deletedIds = new Set(selectedElements.map(el => el.id));
+                componentFunctions = componentFunctions.map(func => {
+                    func.connectors = func.connectors.filter(id => !deletedIds.has(id));
+                    return func;
+                }).filter(func => func.type !== '相通' || func.connectors.length > 1);
+                
                 drawingElements = drawingElements.filter(el => !selectedElements.includes(el));
                 selectedElements = [];
+                updateFunctionButtonState();
                 draw();
             }
         }
     });
 
     exportBtn.addEventListener('click', () => {
-        let minX = Infinity, minY = Infinity;
         if (drawingElements.length === 0) {
             codeOutput.textContent = "畫布上沒有任何元件可供輸出。";
             return;
         }
-
+        
+        let minX = Infinity, minY = Infinity;
         drawingElements.forEach(el => {
             minX = Math.min(minX, el.x, el.x1 || el.x);
             minY = Math.min(minY, el.y, el.y1 || el.y);
         });
 
         const connectors = drawingElements.filter(el => el.type === 'connector');
+        const connectorIdToLabel = new Map();
+        let tempConnectorCount = 1;
+        
+        connectors.forEach(c => {
+            const label = c.label || `C${tempConnectorCount++}`;
+            connectorIdToLabel.set(c.id, label);
+        });
         
         let rebuildConnectorsCode = `
     _rebuildConnectors() {
         this.connectors = [];
-        ${connectors.map(c => `this.connectors.push({ id: \`\${this.id}-${c.label}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${c.label}', potential: 0 });`).join('\n        ')}
+        ${connectors.map(c => {
+            const poleLabel = connectorIdToLabel.get(c.id);
+            return `this.connectors.push({ id: \`\${this.id}-${poleLabel}\`, parent: this, x: this.x + ${c.x - minX}, y: this.y + ${c.y - minY}, type: 'default', pole: '${poleLabel}', potential: 0 });`;
+        }).join('\n        ')}
     }
 `;
         
@@ -515,13 +789,20 @@
         ctx.lineWidth = 2;
         
         ${drawingElements.map(el => {
-            if (el.type === 'connector') return ''; // Connectors are drawn separately
+            if (el.type === 'connector') return '';
             const relX = el.x - minX;
             const relY = el.y - minY;
             switch(el.type) {
                 case 'rect': return `ctx.strokeRect(this.x + ${relX}, this.y + ${relY}, ${el.width}, ${el.height});`;
                 case 'line': return `ctx.beginPath();\n        ctx.moveTo(this.x + ${el.x1 - minX}, this.y + ${el.y1 - minY});\n        ctx.lineTo(this.x + ${el.x2 - minX}, this.y + ${el.y2 - minY});\n        ctx.stroke();`;
-                case 'text': return `ctx.font = '${el.font}';\n        ctx.fillText('${el.content.replace(/'/g, "\\'")}', this.x + ${relX}, this.y + ${relY});`;
+                case 'text':
+                    if (el.content.includes('(X)')) {
+                        const processedText = el.content.replaceAll('(X)', `\${this.instanceNumber}`);
+                        return `ctx.font = '${el.font}';\n        ctx.fillText(\`${processedText}\`, this.x + ${relX}, this.y + ${relY});`;
+                    } else {
+                        const textContent = el.content.replace(/'/g, "\\'");
+                        return `ctx.font = '${el.font}';\n        ctx.fillText('${textContent}', this.x + ${relX}, this.y + ${relY});`;
+                    }
                 default: return '';
             }
         }).filter(Boolean).join('\n        ')}
@@ -532,18 +813,44 @@
     }
 `;
 
+    let logicCode = `
+    updateLogic() {
+        // 此方法應在模擬迴圈中被呼叫
+        ${componentFunctions.filter(func => func.type === '相通').map(func => {
+            const labels = func.connectors.map(id => connectorIdToLabel.get(id)).filter(Boolean);
+            if (labels.length < 2) return ''; 
+
+            const connectorGets = labels.map(label => `const c_${label} = this.getConnectorByPole('${label}');`).join('\n            ');
+            const potentialChecks = labels.map(label => `c_${label}.potential`).join(', ');
+            const potentialSets = labels.map(label => `c_${label}.potential = maxPotential;`).join('\n                ');
+
+            return `
+        // --- 相通群組 ---
+        {
+            ${connectorGets}
+            if ([${labels.map(l => `c_${l}`).join(', ')}].some(c => !c)) return; // Ensure all connectors exist
+            const maxPotential = Math.max(${potentialChecks}, 0);
+            if (maxPotential > 0) {
+                ${potentialSets}
+            }
+        }`;
+        }).join('')}
+    }
+`;
+
     let fullClassCode = `
 /* --- 自訂元件程式碼 --- */
 class CustomComponent extends Component {
+    static instanceCount = 0;
+
     constructor(x, y) {
         super(x, y, 'customComponent');
-        // 在此定義元件的預設狀態屬性，例如: this.isOn = false;
+        this.instanceNumber = ++CustomComponent.instanceCount;
         this._updateDimensions();
         this._rebuildConnectors();
     }
     
     _updateDimensions() {
-      // Calculate width and height based on drawn elements
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       const elements = ${JSON.stringify(drawingElements, null, 2)};
       if(elements.length === 0) { this.width = 0; this.height = 0; return; }
@@ -557,8 +864,13 @@ class CustomComponent extends Component {
       this.height = Math.ceil((maxY - minY) / GRID_SIZE) * GRID_SIZE;
     }
 
+    getConnectorByPole(pole) {
+        return this.connectors.find(c => c.pole === pole);
+    }
+
     ${rebuildConnectorsCode}
     ${drawCode}
+    ${logicCode}
 
     toggle() {
       console.log('Custom component toggled!');
@@ -571,6 +883,7 @@ class CustomComponent extends Component {
     // --- Init ---
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    updateFunctionButtonState();
 </script>
 </body>
 </html>
