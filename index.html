@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>電路配線模擬器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="js/style.css">
+</head>
+<body class="bg-gray-900 text-white flex md:flex-row flex-col-reverse h-screen overflow-hidden">
+
+    <div id="toolbar" class="w-full md:w-48 md:h-full bg-gray-800 p-2 md:p-4 flex flex-row md:flex-col md:space-y-4 shadow-lg z-10 overflow-x-auto md:overflow-y-auto">
+        <h2 class="text-xl font-bold text-center mb-4 border-b border-gray-600 pb-2 hidden md:block">工具列</h2>
+
+        <div class="tool-group">
+            <div class="tool-item" draggable="true" data-type="nfb"><span class="desktop-text"><span class="icon">⚡</span><span>無熔絲開關</span></span><span class="mobile-text">開關</span></div>
+            <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span>指示燈</span></span><span class="mobile-text">燈泡</span></div>
+            <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text"><span class="icon">🔘</span><span>開關元件</span></span><span class="mobile-text">元件</span></div>
+            <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text"><span class="icon">🧲</span><span>電磁接觸器</span></span><span class="mobile-text">MC</span></div>
+            <div class="tool-item" draggable="true" data-type="th-ry"><span class="desktop-text"><span class="icon">🌡️</span><span>積熱電驛</span></span><span class="mobile-text">TH-RY</span></div>
+            <div class="tool-item" draggable="true" data-type="motor"><span class="desktop-text"><span class="icon">Ⓜ️</span><span>馬達</span></span><span class="mobile-text">馬達</span></div>
+            <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
+        </div>
+
+        <div class="tool-group pt-0 md:pt-4 mt-0 md:mt-4 md:border-t border-gray-600 md:space-y-4">
+            <button id="move-tool" class="tool-item" data-type="move"><span class="desktop-text"><span class="icon">🪛</span><span>移動</span></span><span class="mobile-text">移動</span></button>
+
+            <div>
+                 <button id="wire-tool" class="tool-item" data-type="wire"><span class="desktop-text"><span class="icon">〰️</span><span>電線</span></span><span class="mobile-text">電線</span></button>
+                 <div class="hidden md:flex items-center justify-center space-x-2 mt-2">
+                    <div id="wire-color-picker" class="w-6 h-6 rounded-md border-2 border-gray-400 cursor-pointer" title="切換預設電線顏色"></div>
+                    <button id="wire-thickness-picker" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded-md text-xs" title="切換預設電線粗細">細</button>
+                 </div>
+            </div>
+
+            <button id="delete-tool" class="tool-item" data-type="delete"><span class="desktop-text"><span class="icon">🗑️</span><span>刪除</span></span><span class="mobile-text">刪除</span></button>
+        </div>
+
+        <div class="instructions mt-auto text-center text-xs text-gray-400">
+            <p>1. 點選或拖曳工具至畫布</p>
+            <p>2. 久按元件可直接拖曳</p>
+            <p>3. 再次點擊工具可取消</p>
+            <p class="mt-2">點選物件後按Del可刪除</p>
+            <p class="text-xs mt-2">雙擊元件可進行編輯</p>
+            <p class="text-xs mt-2">滾輪縮放/中鍵平移</p>
+        </div>
+    </div>
+
+    <div id="canvas-container" class="flex-1 bg-gray-700 p-2 overflow-hidden relative">
+        <canvas id="canvas"></canvas>
+        <div class="absolute top-4 right-4 flex space-x-2">
+            <button id="save-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-lg">
+                💾 存檔
+            </button>
+            <button id="load-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow-lg">
+                📂 讀取
+            </button>
+            <input type="file" id="file-input" class="hidden" accept=".json">
+        </div>
+    </div>
+
+    <div id="contactor-edit-modal" class="modal-bg hidden">
+        <div class="modal-content w-72">
+            <h3 class="text-lg font-bold mb-4">編輯電磁接觸器</h3>
+            <div class="mb-4">
+                <label for="contactor-name-input" class="block text-sm font-medium text-gray-300 mb-1">名稱</label>
+                <input type="text" id="contactor-name-input" class="bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+            </div>
+            <div class="flex flex-col space-y-4">
+                <button id="add-aux-contact" class="flex-1 bg-green-600 hover:bg-green-700 p-2 rounded">加裝輔助接點</button>
+                <button id="remove-aux-contact" class="flex-1 bg-red-600 hover:bg-red-700 p-2 rounded">移除輔助接點</button>
+            </div>
+            <button id="close-contactor-edit-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <div id="pole-modal" class="modal-bg hidden">
+        <div class="modal-content w-auto">
+            <h3 id="pole-modal-title" class="text-lg font-bold mb-4">編輯極數</h3>
+            <p class="text-sm mb-4">選擇元件的極數 (P數)</p>
+            <div id="pole-options" class="grid grid-cols-2 gap-4">
+                </div>
+            <button id="close-pole-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <div id="switch-modal" class="modal-bg hidden">
+        <div class="modal-content w-96">
+            <h3 class="text-lg font-bold mb-4">選擇開關類型</h3>
+            <div class="grid grid-cols-2 gap-4">
+                <button data-switch-type="pushbutton_no" class="switch-type-btn bg-green-600 hover:bg-green-700 p-3 rounded text-sm">按鈕 (常開 NO)</button>
+                <button data-switch-type="pushbutton_nc" class="switch-type-btn bg-orange-600 hover:bg-orange-700 p-3 rounded text-sm">按鈕 (常閉 NC)</button>
+                <button data-switch-type="rotary_2pos" class="switch-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">二段選擇開關</button>
+                <button data-switch-type="rotary_3pos" class="switch-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">三段選擇開關</button>
+            </div>
+            <button id="close-switch-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <div id="th-ry-modal" class="modal-bg hidden">
+        <div class="modal-content w-96">
+            <h3 class="text-lg font-bold mb-4">選擇積熱電驛類型</h3>
+            <div class="grid grid-cols-2 gap-4">
+                <button data-th-ry-type="A" class="th-ry-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">標準型 (97-98/95-96)</button>
+                <button data-th-ry-type="B" class="th-ry-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">共點型 (95-98/95-96)</button>
+            </div>
+            <button id="close-th-ry-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <div id="motor-modal" class="modal-bg hidden">
+        <div class="modal-content w-96">
+            <h3 class="text-lg font-bold mb-4">選擇馬達類型</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button data-motor-type="3-phase-6" class="motor-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">三相六接點馬達</button>
+                <button data-motor-type="1-phase-3" class="motor-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">單相三線式馬達</button>
+                <button data-motor-type="1-phase-2" class="motor-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm">單相二線式馬達</button>
+            </div>
+            <button id="close-motor-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
+    <script src="js/components.js"></script>
+    <script src="js/main.js"></script>
+
+</body>
+</html>
