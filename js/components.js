@@ -59,6 +59,7 @@ class Component {
     getConnectorAt(mx, my) { for (const conn of this.connectors) { if (Math.hypot(conn.x - mx, conn.y - my) < GRID_SIZE / 2) return conn; } return null; }
     handleInteraction(x, y) { if (typeof this.toggle === 'function') this.toggle(); }
     toggle() {}
+    getInternalConnections() { return []; }
     _rebuildConnectors() { throw new Error("RebuildConnectors must be implemented for " + this.type); }
 }
 
@@ -103,6 +104,16 @@ class NFB extends Component {
         });
     }
     toggle() { this.isOn = !this.isOn; }
+    getInternalConnections() {
+        const connections = [];
+        if (this.isOn) {
+            this.connectors.filter(c => c.type === 'positive' || c.type === 'neutral').forEach(startConn => {
+                const endConn = this.connectors.find(c => c.type === 'output' && c.pole === startConn.pole);
+                if (startConn && endConn) connections.push([startConn, endConn]);
+            });
+        }
+        return connections;
+    }
     getNamePosition() {
         const fontSize = GRID_SIZE * 0.7;
         const textWidth = (this.name || 'NFB').length * fontSize * 0.7;
@@ -258,6 +269,26 @@ class Switch extends Component {
             this.connectors.push({ id: `${this.id}-out_right`, parent: this, x: this.x + this.width - GRID_SIZE, y: this.y + this.height, type: 'out_right', potential: 0 });
         }
     }
+    getInternalConnections() {
+        const connections = [];
+        if (this.switchType.startsWith('pushbutton')) {
+            const isNo = this.switchType.endsWith('no');
+            const isClosed = (isNo && this.isPressed) || (!isNo && !this.isPressed);
+            if (isClosed) connections.push([this.connectors[0], this.connectors[1]]);
+        } else if (this.switchType === 'rotary_2pos') {
+            const com = this.connectors.find(c => c.type === 'com');
+            const out = this.position === 1 ? this.connectors.find(c => c.type === 'out_left') : this.connectors.find(c => c.type === 'out_right');
+            if (com && out) connections.push([com, out]);
+        } else if (this.switchType === 'rotary_3pos') {
+            const com = this.connectors.find(c => c.type === 'com');
+            let out = null;
+            if (this.position === 1) out = this.connectors.find(c => c.type === 'out_left');
+            if (this.position === 2) out = this.connectors.find(c => c.type === 'out_middle');
+            if (this.position === 3) out = this.connectors.find(c => c.type === 'out_right');
+            if (com && out) connections.push([com, out]);
+        }
+        return connections;
+    }
     toggle() {
         if (this.switchType === 'rotary_2pos') { this.position = (this.position === 1) ? 2 : 1; }
         else if (this.switchType === 'rotary_3pos') { this.position = (this.position % 3) + 1; }
@@ -403,6 +434,29 @@ class MagneticContactor extends Component {
             this.connectors.push({ id: `${this.id}-aux-left-no-out`, parent: this, x: this.x + GRID_SIZE * 2, y: mainOutY, type: 'aux-left-no-out', potential: 0 });
         }
     }
+    updateLogic() {
+        const a1 = this.connectors.find(c => c.id === `${this.id}-A1`);
+        const a2 = this.connectors.find(c => c.id === `${this.id}-A2`);
+        this.coilEnergized = (a1.potential === 1 && a2.potential === -1) || (a1.potential === -1 && a2.potential === 1);
+    }
+    getInternalConnections() {
+        const connections = [];
+        if (this.coilEnergized) {
+            for(let p=0; p<3; p++) {
+                connections.push([this.connectors.find(c=>c.type==='main-in'&&c.pole===p), this.connectors.find(c=>c.type==='main-out'&&c.pole===p)]);
+            }
+            connections.push([this.connectors.find(c=>c.type==='aux-no-in'), this.connectors.find(c=>c.type==='aux-no-out')]);
+            if(this.hasLeftAux) {
+                connections.push([this.connectors.find(c=>c.type==='aux-left-no-in'), this.connectors.find(c=>c.type==='aux-left-no-out')]);
+            }
+        } else {
+            connections.push([this.connectors.find(c=>c.type==='aux-nc-in'), this.connectors.find(c=>c.type==='aux-nc-out')]);
+            if(this.hasLeftAux) {
+                connections.push([this.connectors.find(c=>c.type==='aux-left-nc-in'), this.connectors.find(c=>c.type==='aux-left-nc-out')]);
+            }
+        }
+        return connections.filter(p => p[0] && p[1]); // Filter out invalid pairs
+    }
     getNamePosition() {
         const fontSize = GRID_SIZE * 0.8;
         const textWidth = (this.name || '').length * fontSize * 0.7 + 10;
@@ -417,10 +471,6 @@ class MagneticContactor extends Component {
         };
     }
     draw(ctx) {
-        const a1 = this.connectors.find(c=>c.id===`${this.id}-A1`);
-        const a2 = this.connectors.find(c=>c.id===`${this.id}-A2`);
-        this.coilEnergized = (a1.potential === 1 && a2.potential === -1) || (a1.potential === -1 && a2.potential === 1);
-
         const baseIsPowered = this.connectors.some(c => c.potential !== 0);
         const offsetX = this.hasLeftAux ? GRID_SIZE * 3 : 0;
         ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
@@ -530,6 +580,9 @@ class FuseHolder extends Component {
             { id: `${this.id}-out`, parent: this, x: this.x + this.width / 2, y: this.y + this.height, potential: 0 }
         ];
     }
+    getInternalConnections() {
+        return this.isBlown ? [] : [[this.connectors[0], this.connectors[1]]];
+    }
     toggle() {
         this.isBlown = !this.isBlown;
     }
@@ -611,6 +664,29 @@ class ThermalOverloadRelay extends Component {
             this.connectors.push({ id: `${this.id}-96`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 1.5, type: 'aux-nc-out', pole: '96', potential: 0 });
             this.connectors.push({ id: `${this.id}-98`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 2.5, type: 'aux-no-out', pole: '98', potential: 0 });
         }
+    }
+    
+    getInternalConnections() {
+        const connections = [];
+        // Main contacts are always connected
+        for(let i=1; i<=3; i++) {
+            connections.push([this.connectors.find(c=>c.pole===`L${i}`), this.connectors.find(c=>c.pole===`T${i}`)]);
+        }
+        // Aux contacts
+        if (this.relayType === 'A') {
+            if (this.isTripped) {
+                connections.push([this.connectors.find(c=>c.pole==='97'), this.connectors.find(c=>c.pole==='98')]);
+            } else {
+                connections.push([this.connectors.find(c=>c.pole==='95'), this.connectors.find(c=>c.pole==='96')]);
+            }
+        } else {
+            if(this.isTripped) {
+                connections.push([this.connectors.find(c=>c.pole==='95'), this.connectors.find(c=>c.pole==='98')]);
+            } else {
+                connections.push([this.connectors.find(c=>c.pole==='95'), this.connectors.find(c=>c.pole==='96')]);
+            }
+        }
+        return connections.filter(p => p[0] && p[1]);
     }
 
     handleInteraction(x, y) {
@@ -890,6 +966,20 @@ class TerminalBlock extends Component {
         });
     }
 
+    getInternalConnections() {
+        const connections = [];
+        if (this.drawingData) {
+            this.drawingData.componentFunctions.forEach(func => {
+                if (func.type === '相通') {
+                    const conn1 = this.connectors.find(c => c.originalId === func.connectors[0]);
+                    const conn2 = this.connectors.find(c => c.originalId === func.connectors[1]);
+                    if (conn1 && conn2) connections.push([conn1, conn2]);
+                }
+            });
+        }
+        return connections;
+    }
+
     getNamePosition() {
         if (!this.namePos) return null;
 
@@ -961,5 +1051,282 @@ class Wire {
         ctx.lineWidth = this.thickness; ctx.beginPath(); ctx.moveTo(this.path[0].x, this.path[0].y);
         for (let i = 1; i < this.path.length; i++) { ctx.lineTo(this.path[i].x, this.path[i].y); }
         ctx.stroke();
+    }
+}
+
+class Relay extends Component {
+    constructor(x, y) {
+        super(x, y, 'relay');
+        this.relayType = '2C';
+        this.data = null;
+        this.minX = 0;
+        this.minY = 0;
+        this.isEnergized = false;
+        this.timers = {};
+        this.knobs = {};
+        this.adjustingKnobId = null;
+        this.name = '';
+
+        this.setRelayType(this.relayType);
+    }
+    
+    setRelayType(type) {
+        this.relayType = type;
+        this.data = JSON.parse(JSON.stringify(RELAY_DATA[type])); // Deep copy
+        if (!this.data) {
+            console.error(`找不到繼電器資料: ${type}`);
+            return;
+        }
+
+        // Reset state
+        this.isEnergized = false;
+        this.timers = {};
+        this.knobs = {};
+        this.adjustingKnobId = null;
+
+        this._updateDimensions();
+        this._rebuildConnectors();
+    }
+
+    _updateDimensions() {
+        if (!this.data) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        
+        this.data.drawingElements.forEach(el => {
+            const elMinX = el.x1 !== undefined ? Math.min(el.x1, el.x2) : (el.x - (el.radius || 0));
+            const elMinY = el.y1 !== undefined ? Math.min(el.y1, el.y2) : (el.y - (el.radius || 0));
+            const elMaxX = el.x1 !== undefined ? Math.max(el.x1, el.x2) : (el.x + (el.width || el.radius || 0));
+            const elMaxY = el.y1 !== undefined ? Math.max(el.y1, el.y2) : (el.y + (el.height || el.radius || 0));
+            minX = Math.min(minX, elMinX);
+            minY = Math.min(minY, elMinY);
+            maxX = Math.max(maxX, elMaxX);
+            maxY = Math.max(maxY, elMaxY);
+        });
+
+        this.minX = minX;
+        this.minY = minY;
+        this.width = snapToGrid(maxX - minX);
+        this.height = snapToGrid(maxY - minY);
+    }
+
+    _rebuildConnectors() {
+        if (!this.data) return;
+        this.connectors = [];
+        this.knobs = {};
+        this.timers = {};
+
+        this.data.drawingElements.forEach(el => {
+            if (el.type === 'connector') {
+                this.connectors.push({
+                    id: `${this.id}-${el.id}`,
+                    originalId: el.id,
+                    parent: this,
+                    x: this.x + (el.x - this.minX),
+                    y: this.y + (el.y - this.minY),
+                    type: 'relay-terminal',
+                    potential: 0
+                });
+            } else if (el.type === 'knob') {
+                this.knobs[el.id] = {
+                    x: el.x - this.minX,
+                    y: el.y - this.minY,
+                    radius: el.radius,
+                    value: el.value || 0,
+                    maxValue: el.maxValue || 10
+                };
+            }
+        });
+        
+        // Initialize timers based on functions
+        this.data.componentFunctions.forEach(func => {
+            if (func.type.startsWith('timed-') && func.knobId) {
+                this.timers[`timer_${func.knobId}`] = { active: false, elapsed: 0, delay: 0 };
+            }
+        });
+    }
+    
+    updatePosition(newX, newY) {
+        super.updatePosition(newX, newY);
+        this._rebuildConnectors(); // Re-calculate connector positions
+    }
+
+    updateLogic(deltaTime) {
+        if (!this.data) return;
+
+        // 1. Determine coil state
+        const coilFunc = this.data.componentFunctions.find(f => f.type === 'coil');
+        let isEnergizedThisFrame = false;
+        if (coilFunc) {
+            const conn1 = this.connectors.find(c => c.originalId === coilFunc.connectors[0]);
+            const conn2 = this.connectors.find(c => c.originalId === coilFunc.connectors[1]);
+            if (conn1 && conn2 && conn1.potential !== 0 && conn2.potential !== 0 && conn1.potential !== conn2.potential) {
+                isEnergizedThisFrame = true;
+            }
+        }
+        
+        const wasEnergized = this.isEnergized;
+        this.isEnergized = isEnergizedThisFrame;
+
+        // 2. Update timers
+        for (const timerKey in this.timers) {
+            const timer = this.timers[timerKey];
+            const knobId = timerKey.split('_')[1];
+            const knob = this.knobs[knobId];
+
+            if (this.isEnergized) {
+                if (!wasEnergized) { // Just turned ON
+                    timer.active = true;
+                    timer.delay = (knob ? knob.value : 0) * 1000;
+                    timer.elapsed = 0;
+                }
+                if (timer.active) {
+                    timer.elapsed += deltaTime;
+                }
+            } else { // Not energized
+                timer.active = false;
+                timer.elapsed = 0;
+            }
+        }
+    }
+
+    getInternalConnections() {
+        if (!this.data) return [];
+        const connections = [];
+
+        this.data.componentFunctions.forEach(func => {
+            const conn1 = this.connectors.find(c => c.originalId === func.connectors[0]);
+            const conn2 = this.connectors.find(c => c.originalId === func.connectors[1]);
+            if (!conn1 || !conn2) return;
+
+            let shouldConnect = false;
+            switch (func.type) {
+                case 'a-contact':
+                    if (this.isEnergized) shouldConnect = true;
+                    break;
+                case 'b-contact':
+                    if (!this.isEnergized) shouldConnect = true;
+                    break;
+                case 'timed-a-contact': {
+                    const timer = this.timers[`timer_${func.knobId}`];
+                    if (timer && timer.active && timer.elapsed >= timer.delay) {
+                        shouldConnect = true;
+                    }
+                    break;
+                }
+                case 'timed-b-contact': {
+                    const timer = this.timers[`timer_${func.knobId}`];
+                    if (!this.isEnergized || (timer && this.isEnergized && timer.elapsed < timer.delay)) {
+                         shouldConnect = true;
+                    }
+                    break;
+                }
+            }
+            if (shouldConnect) {
+                connections.push([conn1, conn2]);
+            }
+        });
+        return connections;
+    }
+    
+    handleInteraction(x, y, eventType, worldPos) {
+        if (eventType === 'mousedown') {
+            for (const id in this.knobs) {
+                const knob = this.knobs[id];
+                const knobWorldX = this.x + knob.x;
+                const knobWorldY = this.y + knob.y;
+                if (Math.hypot(worldPos.x - knobWorldX, worldPos.y - knobWorldY) < knob.radius * 0.5) {
+                    this.adjustingKnobId = id;
+                    return true;
+                }
+            }
+        } else if (eventType === 'mousemove' && this.adjustingKnobId) {
+            const knob = this.knobs[this.adjustingKnobId];
+            const knobWorldX = this.x + knob.x;
+            const knobWorldY = this.y + knob.y;
+
+            const dx = worldPos.x - knobWorldX;
+            const dy = worldPos.y - knobWorldY;
+            let angle = Math.atan2(dy, dx);
+
+            const startAngle = Math.PI * 0.75;
+            const endAngle = Math.PI * 2.25;
+
+            if (angle < startAngle - Math.PI) angle += Math.PI * 2;
+            
+            const clampedAngle = Math.max(startAngle, Math.min(angle, endAngle));
+            const totalAngleRange = endAngle - startAngle;
+            const valueRatio = (clampedAngle - startAngle) / totalAngleRange;
+            
+            knob.value = Math.round(valueRatio * knob.maxValue);
+            return true;
+        } else if (eventType === 'mouseup') {
+            if (this.adjustingKnobId) {
+                this.adjustingKnobId = null;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    draw(ctx) {
+        if (!this.data) return;
+        const baseIsPowered = this.connectors.some(c => c.potential !== 0) || this.isEnergized;
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = 2;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        this.data.drawingElements.forEach(el => {
+            const x = this.x + (el.x - this.minX);
+            const y = this.y + (el.y - this.minY);
+            
+            switch(el.type) {
+                case 'rect': ctx.strokeRect(x, y, el.width, el.height); break;
+                case 'circle': ctx.beginPath(); ctx.arc(x, y, el.radius, 0, Math.PI * 2); ctx.stroke(); break;
+                case 'line': ctx.beginPath(); ctx.moveTo(this.x + el.x1 - this.minX, this.y + el.y1 - this.minY); ctx.lineTo(this.x + el.x2 - this.minX, this.y + el.y2 - this.minY); ctx.stroke(); break;
+                case 'text': ctx.font = el.font || '16px sans-serif'; ctx.fillText(el.content.replace('(X)', `(${this.name})`), x, y); break;
+                case 'knob': this._drawKnob(ctx, x, y, el); break;
+            }
+        });
+
+        this.connectors.forEach(c => drawConnector(ctx, c));
+    }
+    
+    _drawKnob(ctx, x, y, knobData) {
+        const knobState = this.knobs[knobData.id];
+        if (!knobState) return;
+
+        const startAngle = Math.PI * 0.75;
+        const endAngle = Math.PI * 2.25;
+        
+        ctx.save();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#a0aec0';
+        
+        ctx.beginPath();
+        ctx.arc(x, y, knobState.radius, startAngle, endAngle);
+        ctx.stroke();
+
+        const handleRadius = knobState.radius * 0.4;
+        ctx.beginPath();
+        ctx.arc(x, y, handleRadius, 0, 2 * Math.PI);
+        ctx.fillStyle = '#a0aec0';
+        ctx.fill();
+        
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#2d3748';
+        const totalAngle = endAngle - startAngle;
+        const valueRatio = knobState.value / knobState.maxValue;
+        const pointerAngle = startAngle + valueRatio * totalAngle;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + handleRadius * Math.cos(pointerAngle), y + handleRadius * Math.sin(pointerAngle));
+        ctx.stroke();
+
+        ctx.fillStyle = this.isEnergized ? '#f6e05e' : '#a0aec0';
+        ctx.font = `${Math.min(14, knobState.radius * 0.6)}px sans-serif`;
+        ctx.fillText(knobState.value.toFixed(0), x, y - knobState.radius - 8);
+        ctx.restore();
     }
 }

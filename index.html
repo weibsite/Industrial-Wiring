@@ -18,6 +18,7 @@
             <div id="bulb-tool-item" class="tool-item" draggable="true" data-type="bulb"><span class="desktop-text"><span class="icon">💡</span><span>指示燈</span></span><span class="mobile-text">燈泡</span></div>
             <div class="tool-item" draggable="true" data-type="switch"><span class="desktop-text"><span class="icon">🔘</span><span>開關元件</span></span><span class="mobile-text">元件</span></div>
             <div class="tool-item" draggable="true" data-type="contactor"><span class="desktop-text"><span class="icon">🧲</span><span>電磁接觸器</span></span><span class="mobile-text">MC</span></div>
+            <div class="tool-item" draggable="true" data-type="relay"><span class="desktop-text"><span class="icon">🌀</span><span>繼電器</span></span><span class="mobile-text">繼電器</span></div>
             <div class="tool-item" draggable="true" data-type="th-ry"><span class="desktop-text"><span class="icon">🌡️</span><span>積熱電驛</span></span><span class="mobile-text">TH-RY</span></div>
             <div class="tool-item" draggable="true" data-type="motor"><span class="desktop-text"><span class="icon">Ⓜ️</span><span>馬達</span></span><span class="mobile-text">馬達</span></div>
             <div class="tool-item" draggable="true" data-type="fuse"><span class="desktop-text"><span class="icon">🔥</span><span>保險絲座</span></span><span class="mobile-text">保險絲</span></div>
@@ -102,6 +103,16 @@
         </div>
     </div>
 
+    <div id="relay-modal" class="modal-bg hidden">
+        <div class="modal-content w-auto md:w-[32rem]">
+            <h3 class="text-lg font-bold mb-4">選擇繼電器類型</h3>
+            <div id="relay-options" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <!-- Options will be populated by main.js -->
+            </div>
+            <button id="close-relay-modal" class="w-full mt-6 bg-gray-500 hover:bg-gray-600 p-2 rounded">關閉</button>
+        </div>
+    </div>
+
     <div id="th-ry-modal" class="modal-bg hidden">
         <div class="modal-content w-96">
             <h3 class="text-lg font-bold mb-4">選擇積熱電驛類型</h3>
@@ -150,6 +161,7 @@
     </div>
 
     <script src="js/terminalBlockData.js"></script>
+    <script src="js/relayData.js"></script>
     <script src="js/components.js"></script>
     <script src="js/main.js"></script>
 
