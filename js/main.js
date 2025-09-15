@@ -6,34 +6,11 @@ const canvasContainer = document.getElementById('canvas-container');
 const wireColorPicker = document.getElementById('wire-color-picker');
 const wireThicknessPicker = document.getElementById('wire-thickness-picker');
 
-const contactorEditModal = document.getElementById('contactor-edit-modal');
-const addAuxContactBtn = document.getElementById('add-aux-contact');
-const removeAuxContactBtn = document.getElementById('remove-aux-contact');
-const closeContactorEditModalBtn = document.getElementById('close-contactor-edit-modal');
-const contactorNameInput = document.getElementById('contactor-name-input');
-
-const poleModal = document.getElementById('pole-modal');
-const poleModalTitle = document.getElementById('pole-modal-title');
-const poleOptionsContainer = document.getElementById('pole-options');
-const closePoleModalBtn = document.getElementById('close-pole-modal');
-
-const switchModal = document.getElementById('switch-modal');
-const closeSwitchModalBtn = document.getElementById('close-switch-modal');
-
-const relayModal = document.getElementById('relay-modal');
-const relayOptionsContainer = document.getElementById('relay-options');
-const closeRelayModalBtn = document.getElementById('close-relay-modal');
-
-const thRyModal = document.getElementById('th-ry-modal');
-const closeThRyModalBtn = document.getElementById('close-th-ry-modal');
-
-const motorModal = document.getElementById('motor-modal');
-const closeMotorModalBtn = document.getElementById('close-motor-modal');
-
-const terminalBlockModal = document.getElementById('terminal-block-modal');
-const tbPoleOptions = document.getElementById('tb-pole-options');
-const tbOrientationOptions = document.getElementById('tb-orientation-options');
-const applyTbChangesBtn = document.getElementById('save-tb-modal');
+const genericEditModal = document.getElementById('generic-edit-modal');
+const modalTitle = document.getElementById('generic-modal-title');
+const editOptionsContainer = document.getElementById('edit-options-container');
+const editNumericInputsContainer = document.getElementById('edit-numeric-inputs-container');
+const saveModalBtn = document.getElementById('save-generic-modal-btn');
 
 const infoBox = document.getElementById('info-box');
 const infoBoxTitle = document.getElementById('info-box-title');
@@ -83,9 +60,9 @@ let lastTapPos = null;
 let renameInput = null;
 let componentBeingRenamed = null;
 
-let interactingComponent = null; // For components like relays with knobs
-let infoBoxTarget = null; // Component targeted by the info box
-let componentDescriptionMap = new Map(); // Store for component descriptions
+let interactingComponent = null; 
+let infoBoxTarget = null;
+let componentDescriptionMap = new Map();
 
 // --- Wire Settings ---
 let defaultWireColor = '#f6e05e';
@@ -146,6 +123,7 @@ function checkCollision(rect1, ignoreId = -1) {
 
 function createTempComponent(type, x, y){
     switch (type) {
+        case 'power': return new PowerSource(x, y);
         case 'nfb': return new NFB(x, y);
         case 'bulb': return new Bulb(x, y, nextBulbColorIndex);
         case 'switch': return new Switch(x, y);
@@ -155,6 +133,8 @@ function createTempComponent(type, x, y){
         case 'motor': return new Motor(x,y);
         case 'terminalBlock': return new TerminalBlock(x,y);
         case 'relay': return new Relay(x, y);
+        case 'resistor': return new Resistor(x, y);
+        case 'ammeter': return new Ammeter(x, y);
         default: return null;
     }
 }
@@ -300,13 +280,12 @@ function draw() {
     }
 
     if (infoBoxTarget) {
-        ctx.strokeStyle = '#38bdf8'; // light blue
+        ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 3 / view.scale;
         ctx.setLineDash([8 / view.scale, 4 / view.scale]);
         ctx.strokeRect(infoBoxTarget.x - 6, infoBoxTarget.y - 6, infoBoxTarget.width + 12, infoBoxTarget.height + 12);
         ctx.setLineDash([]);
 
-        // Update info box position continuously
         const screenX = (infoBoxTarget.x + infoBoxTarget.width) * view.scale + view.tx + 10;
         const screenY = infoBoxTarget.y * view.scale + view.ty;
         infoBox.style.left = `${screenX}px`;
@@ -360,84 +339,162 @@ function draw() {
 
 // --- SIMULATION LOGIC ---
 function runSimulation() {
-    // Reset potentials
-    components.forEach(c => c.connectors.forEach(conn => conn.potential = 0));
-    wires.forEach(w => w.potential = 0);
+    // Reset all potentials and currents
+    components.forEach(c => {
+        c.connectors.forEach(conn => { conn.potential = 0; });
+        if (c.type === 'ammeter') c.measuredCurrent = 0;
+    });
+    wires.forEach(w => { w.potential = 0; w.current = 0; w.isOvercurrent = false; });
 
-    const powerSources = components.filter(c => c.type === 'nfb');
+    const powerSources = components.filter(c => c.type === 'power');
     if (powerSources.length === 0) return;
 
-    // Propagate positive and negative potentials
-    [1, -1].forEach(potential => {
-        let queue = [];
-        // Start from power sources
-        powerSources.forEach(nfb => {
-            const startConnectors = nfb.connectors.filter(c => 
-                (potential === 1 && c.type === 'positive') || (potential === -1 && c.type === 'neutral')
-            );
-            startConnectors.forEach(c => {
-                if (c.potential === 0) {
-                    c.potential = potential;
-                    queue.push(c);
-                }
-            });
+    // 1. Propagate potentials from all power sources
+    let queue = [];
+    powerSources.forEach(ps => {
+        ps.connectors.forEach(c => {
+            if (c.type === 'neutral') c.potential = -1;
+            else if (c.type === 'positive' || c.type === 'positive_alt') c.potential = 1;
+            queue.push(c);
         });
+    });
 
-        let visitedConnectors = new Set(queue.map(c => c.id));
-
-        while (queue.length > 0) {
-            const currentConn = queue.shift();
+    let visitedConnectors = new Set(queue.map(c => c.id));
+    while (queue.length > 0) {
+        const currentConn = queue.shift();
+        
+        // Propagate through wires
+        wires.forEach(w => {
+            let otherConn = null;
+            if (w.start.id === currentConn.id) otherConn = w.end;
+            if (w.end.id === currentConn.id) otherConn = w.start;
             
-            // 1. Propagate through wires
-            wires.forEach(w => {
-                let otherConn = null;
-                if (w.start.id === currentConn.id) otherConn = w.end;
-                if (w.end.id === currentConn.id) otherConn = w.start;
+            if (otherConn && !visitedConnectors.has(otherConn.id)) {
+                w.potential = currentConn.potential;
+                otherConn.potential = currentConn.potential;
+                visitedConnectors.add(otherConn.id);
+                queue.push(otherConn);
+            }
+        });
+        
+        // Propagate through internal component connections
+        const comp = currentConn.parent;
+        const internalConnections = comp.getInternalConnections ? comp.getInternalConnections() : [];
+        
+        internalConnections.forEach(([connA, connB]) => {
+            if(!connA || !connB) return;
+            if (connA.potential !== 0 && connB.potential === 0 && !visitedConnectors.has(connB.id)) {
+                connB.potential = connA.potential;
+                visitedConnectors.add(connB.id);
+                queue.push(connB);
+            } else if (connB.potential !== 0 && connA.potential === 0 && !visitedConnectors.has(connA.id)) {
+                connA.potential = connB.potential;
+                visitedConnectors.add(connA.id);
+                queue.push(connA);
+            }
+        });
+    }
+
+    // 2. Find circuits and calculate current for each power source
+    powerSources.forEach(ps => {
+        const positiveTerminals = ps.connectors.filter(c => c.potential === 1);
+        
+        positiveTerminals.forEach(startNode => {
+            const circuit = findCircuit(startNode, ps);
+            if (circuit) {
+                const { path, resistance, loads } = circuit;
+                const totalResistance = Math.max(0.01, resistance);
+                const current = ps.voltage / totalResistance;
+
+                let minAmperageLimit = Infinity;
+                path.forEach(item => {
+                    if (item.component && item.component.amperageLimit != null) {
+                        minAmperageLimit = Math.min(minAmperageLimit, item.component.amperageLimit);
+                    }
+                });
+
+                // Apply current and check for overcurrent
+                path.forEach(item => {
+                    if (item.wire) {
+                        item.wire.current = current;
+                        item.wire.isOvercurrent = current > minAmperageLimit;
+                    }
+                    if (item.component) {
+                        item.component.current = current;
+                        if (item.component.type === 'ammeter') {
+                            item.component.measuredCurrent = current;
+                        }
+                    }
+                });
                 
-                if (otherConn && !visitedConnectors.has(otherConn.id)) {
-                    w.potential = potential;
-                    otherConn.potential = potential;
-                    visitedConnectors.add(otherConn.id);
-                    queue.push(otherConn);
+                // Trip breakers/blow fuses if overcurrent
+                if (current > minAmperageLimit) {
+                    loads.forEach(load => {
+                        if (load.amperageLimit <= minAmperageLimit) {
+                            if (load.type === 'nfb') load.isOn = false;
+                            if (load.type === 'fuse') load.isBlown = true;
+                            if (load.type === 'th-ry') load.isTripped = true;
+                        }
+                    });
+                }
+            }
+        });
+    });
+}
+
+function findCircuit(startNode, powerSource) {
+    let queue = [[startNode, [{ component: startNode.parent }]]];
+    let visited = new Set([startNode.id]);
+    
+    while(queue.length > 0) {
+        const [currentNode, path] = queue.shift();
+        
+        // Check if we reached a neutral terminal of the SAME power source
+        if (currentNode.potential === -1 && currentNode.parent.id === powerSource.id) {
+            let totalResistance = 0;
+            let loads = new Set();
+            path.forEach(item => {
+                if (item.component && item.component.resistance) {
+                    totalResistance += item.component.resistance;
+                }
+                if (item.component && item.component.amperageLimit != null) {
+                    loads.add(item.component);
                 }
             });
-            
-            // 2. Propagate through internal component connections
-            const comp = currentConn.parent;
-            const internalConnections = comp.getInternalConnections ? comp.getInternalConnections() : [];
-            
-            internalConnections.forEach(([connA, connB]) => {
-                if(!connA || !connB) return;
+            return { path, resistance: totalResistance, loads: Array.from(loads) };
+        }
 
-                const connAPotential = connA.potential;
-                const connBPotential = connB.potential;
-
-                // Propagate potential if one side has it and the other doesn't
-                if (connAPotential === potential && connBPotential === 0) {
-                    connB.potential = potential;
-                    if (!visitedConnectors.has(connB.id)) {
-                        visitedConnectors.add(connB.id);
-                        queue.push(connB);
-                    }
-                } else if (connBPotential === potential && connAPotential === 0) {
-                    connA.potential = potential;
-                    if (!visitedConnectors.has(connA.id)) {
-                        visitedConnectors.add(connA.id);
-                        queue.push(connA);
-                    }
+        const neighbors = getNeighbors(currentNode);
+        for (const neighbor of neighbors) {
+            const { connector, through } = neighbor;
+            if (!visited.has(connector.id)) {
+                visited.add(connector.id);
+                const newPath = [...path];
+                if (through.type === 'wire') { newPath.push({ wire: through }); }
+                if (through.type !== 'power') { // Don't add the power source itself as a path component
+                    newPath.push({ component: connector.parent });
                 }
-            });
+                queue.push([connector, newPath]);
+            }
         }
-    });
+    }
+    return null; // No complete circuit found
+}
 
-    // Check for blown fuses after all potentials are set
-    components.filter(c => c.type === 'fuse' && !c.isBlown).forEach(fuse => {
-        const potA = fuse.connectors[0].potential;
-        const potB = fuse.connectors[1].potential;
-        if ((potA === 1 && potB === -1) || (potA === -1 && potB === 1)) {
-            fuse.isBlown = true;
-        }
+function getNeighbors(connector) {
+    const neighbors = [];
+    wires.forEach(wire => {
+        if (wire.start.id === connector.id) neighbors.push({ connector: wire.end, through: wire });
+        if (wire.end.id === connector.id) neighbors.push({ connector: wire.start, through: wire });
     });
+    const component = connector.parent;
+    if (component.getInternalConnections) {
+        component.getInternalConnections().forEach(([c1, c2]) => {
+            if (c1.id === connector.id) neighbors.push({ connector: c2, through: component });
+            if (c2.id === connector.id) neighbors.push({ connector: c1, through: component });
+        });
+    }
+    return neighbors;
 }
 
 
@@ -455,23 +512,20 @@ function showInfoBox(component) {
     const title = component.name || component.displayName || component.type;
     
     infoBoxTitle.textContent = title;
-    infoBoxContent.innerHTML = ''; // Clear previous content
+    infoBoxContent.innerHTML = '';
 
-    // Replace user's line break symbol with actual HTML line breaks
     descriptionText = descriptionText.replace(/;/g, '<br>');
-
     const urlRegex = /(https?:\/\/[^\s]+?\.(?:jpg|jpeg|png|gif))/gi;
     const parts = descriptionText.split(urlRegex);
 
     parts.forEach(part => {
         if (!part) return;
         if (part.match(urlRegex)) {
-            // This is a URL
             const img = document.createElement('img');
             img.src = part;
             img.className = 'info-thumbnail';
             img.title = '點擊放大圖片';
-            img.onerror = () => { img.style.display = 'none'; }; // Hide if image fails to load
+            img.onerror = () => { img.style.display = 'none'; };
             img.onclick = (e) => {
                 e.stopPropagation();
                 enlargedImg.src = img.src;
@@ -479,34 +533,17 @@ function showInfoBox(component) {
             };
             infoBoxContent.appendChild(img);
         } else {
-            // This is text, potentially with <br>
             const textContainer = document.createElement('span');
-            textContainer.innerHTML = part; // Use innerHTML to render <br> tags
+            textContainer.innerHTML = part;
             infoBoxContent.appendChild(textContainer);
         }
     });
-
-
     infoBox.classList.remove('hidden');
-    draw(); // To show highlight and update position
-}
-
-function closeAllModals() {
-    hideInfoBox();
-    contactorEditModal.classList.add('hidden');
-    poleModal.classList.add('hidden');
-    switchModal.classList.add('hidden');
-    thRyModal.classList.add('hidden');
-    motorModal.classList.add('hidden');
-    terminalBlockModal.classList.add('hidden');
-    relayModal.classList.add('hidden');
-    if (selectedComponentForEdit) {
-        selectedComponentForEdit = null;
-    }
+    draw();
 }
 
 function handleToolClick(toolElement) {
-    closeAllModals();
+    closeGenericEditModal();
     if (renameInput) exitRenameMode();
 
     placementPreview = null;
@@ -545,7 +582,13 @@ function addComponentToCanvas(newComp) {
         case 'motor':
         case 'terminalBlock':
         case 'th-ry':
-            newComp.name = { 'contactor': 'MC', 'motor': 'M', 'terminalBlock': 'TB', 'th-ry': 'TH' }[newComp.type] + getNextNumberForType(newComp.type);
+        case 'nfb':
+        case 'fuse':
+        case 'resistor':
+        case 'ammeter':
+        case 'power':
+            let prefixMap = { 'contactor': 'MC', 'motor': 'M', 'terminalBlock': 'TB', 'th-ry': 'TH', 'nfb': 'NFB', 'fuse': 'F', 'resistor': 'R', 'ammeter': 'A', 'power': 'PS'};
+            newComp.name = prefixMap[newComp.type] + getNextNumberForType(newComp.type);
             break;
         case 'switch':
             newComp.name = 'PB' + getNextNumberForType('pushbutton');
@@ -554,7 +597,7 @@ function addComponentToCanvas(newComp) {
             newComp.displayName = 'PL' + getNextNumberForType('bulb');
             break;
         case 'relay':
-            { // Use a block to scope variables
+            {
                 let num, name;
                 if (['2C', '3C', '4C'].includes(newComp.relayType)) {
                     num = getNextNumberForType('relay_pr');
@@ -570,10 +613,7 @@ function addComponentToCanvas(newComp) {
             }
             break;
     }
-
-    // Apply description based on component type key
     applyDescriptionToComponent(newComp);
-
     components.push(newComp);
 }
 
@@ -591,7 +631,7 @@ function handleCanvasInteraction(x, y, e = null) {
         if (x >= dr.x && x <= dr.x + dr.width && y >= dr.y && y <= dr.y + dr.height) { wires = wires.filter(w => w.id !== selectedWire.id); selectedWire = null; draw(); return; }
     }
 
-    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor', 'terminalBlock', 'relay'].includes(activeToolType);
+    const isComponentTool = !['move', 'wire', 'rename', 'query', 'delete', null].includes(activeToolType);
     if (isComponentTool) {
         selectedComponent = null;
         const clickedOnComponent = components.some(c => c.isUnderMouse(x, y));
@@ -636,16 +676,9 @@ function handleCanvasInteraction(x, y, e = null) {
         }
         
         if (activeToolType === 'query') {
-            if (clickedComponent) {
-                showInfoBox(clickedComponent);
-            } else {
-                hideInfoBox();
-            }
+            if (clickedComponent) { showInfoBox(clickedComponent); } else { hideInfoBox(); }
         } else if (activeToolType === 'rename') {
-            if(clickedComponent) {
-                selectedComponent = clickedComponent;
-                enterRenameMode(clickedComponent);
-            }
+            if(clickedComponent) { selectedComponent = clickedComponent; enterRenameMode(clickedComponent); }
         } else if (activeToolType === 'delete') {
             if (clickedComponent) {
                 wires = wires.filter(w => w.start.parent.id !== clickedComponent.id && w.end.parent.id !== clickedComponent.id);
@@ -654,8 +687,7 @@ function handleCanvasInteraction(x, y, e = null) {
                 const wireToDelete = wires.find(w => { if (!w.path || w.path.length < 2) return false; for (let i = 0; i < w.path.length - 1; i++) { if (pDistance(x, y, w.path[i].x, w.path[i].y, w.path[i+1].x, w.path[i+1].y) < 5) return true; } return false; });
                 if (wireToDelete) wires = wires.filter(w => w.id !== wireToDelete.id);
             }
-            selectedWire = null;
-            selectedComponent = null;
+            selectedWire = null; selectedComponent = null;
         } else if (activeToolType === 'wire') {
             selectedComponent = null;
             if (clickedConnector) {
@@ -690,14 +722,9 @@ function handleCanvasInteraction(x, y, e = null) {
                         clickedComponent.handleInteraction(x, y, 'click');
                     }
                 }
-
                 somethingWasClicked = true;
             }
-            
-            if (!somethingWasClicked) { 
-                selectedWire = null; 
-                selectedComponent = null;
-            }
+            if (!somethingWasClicked) { selectedWire = null; selectedComponent = null; }
         }
     }
     draw();
@@ -767,50 +794,25 @@ canvas.addEventListener('dblclick', (e) => {
 });
 
 function handleCanvasDoubleClick(x,y) {
-    // If a double-click happens while starting a wire, cancel the wire.
     if (activeToolType === 'wire' && wiringState.start) {
         wiringState = { start: null, end: null };
         wiringPathPoints = [];
-        handleToolClick(document.getElementById('wire-tool')); // This deactivates the tool
+        handleToolClick(document.getElementById('wire-tool'));
     }
-    closeAllModals(); // Close any open modal first
+    closeGenericEditModal();
     const clickedComponent = components.find(c => c.isUnderMouse(x, y));
     if (clickedComponent) {
         selectedComponentForEdit = clickedComponent;
-        if (clickedComponent.type === 'nfb') { poleModalTitle.textContent = `編輯 NFB 極性`; openPoleModal(['1P', '2P', '3P', '4P']); }
-        else if (clickedComponent.type === 'switch') { switchModal.classList.remove('hidden'); }
-        else if (clickedComponent.type === 'relay') { openRelayModal(); }
-        else if (clickedComponent.type === 'bulb') { clickedComponent.cycleColor(); draw(); }
-        else if (clickedComponent.type === 'th-ry') { thRyModal.classList.remove('hidden'); }
-        else if (clickedComponent.type === 'motor') { motorModal.classList.remove('hidden'); }
-        else if (clickedComponent.type === 'terminalBlock') { openTerminalBlockModal(); }
-        else if (clickedComponent.type === 'fuse' && clickedComponent.isBlown) {
+        if (clickedComponent.type === 'bulb') {
+            clickedComponent.cycleColor();
+            draw();
+        } else if (clickedComponent.type === 'fuse' && clickedComponent.isBlown) {
             clickedComponent.isBlown = false;
-        }
-        else if (clickedComponent.type === 'contactor') {
-            contactorNameInput.value = clickedComponent.name;
-            if (clickedComponent.hasLeftAux) {
-                addAuxContactBtn.style.display = 'none';
-                removeAuxContactBtn.style.display = 'block';
-            } else {
-                addAuxContactBtn.style.display = 'block';
-                removeAuxContactBtn.style.display = 'none';
-            }
-            contactorEditModal.classList.remove('hidden');
+            draw();
+        } else {
+             openGenericEditModal(clickedComponent);
         }
     }
-}
-
-function openPoleModal(options) {
-    poleOptionsContainer.innerHTML = '';
-    options.forEach(opt => {
-        const btn = document.createElement('button');
-        btn.dataset.poles = opt;
-        btn.className = 'pole-btn flex-1 bg-blue-600 hover:bg-blue-700 p-2 rounded';
-        btn.textContent = opt;
-        poleOptionsContainer.appendChild(btn);
-    });
-    poleModal.classList.remove('hidden');
 }
 
 canvas.addEventListener('mousedown', (e) => {
@@ -847,7 +849,7 @@ canvas.addEventListener('mousedown', (e) => {
         if(tempPreviewComp.type === 'relay') tempPreviewComp.setRelayType('2C');
     }
     const mouseOnPreview = tempPreviewComp && (pos.x >= tempPreviewComp.x && pos.x <= tempPreviewComp.x + tempPreviewComp.width && pos.y >= tempPreviewComp.y && pos.y <= tempPreviewComp.y + tempPreviewComp.height);
-    const isComponentTool = ['nfb', 'bulb', 'switch', 'contactor', 'fuse', 'th-ry', 'motor', 'terminalBlock', 'relay'].includes(activeToolType);
+    const isComponentTool = !['move', 'wire', 'rename', 'query', 'delete', null].includes(activeToolType);
 
     if (activeToolType === 'move' && comp) {
          canvas.style.cursor = 'grabbing';
@@ -990,7 +992,7 @@ canvas.addEventListener('drop', (e) => {
 
 window.addEventListener('keydown', (e) => { 
     if (selectedComponent && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        e.preventDefault(); // 防止頁面滾動
+        e.preventDefault();
         const step = GRID_SIZE / 2;
         let newX = selectedComponent.x;
         let newY = selectedComponent.y;
@@ -1006,7 +1008,6 @@ window.addEventListener('keydown', (e) => {
         if (!checkCollision(rect, selectedComponent.id)) {
             selectedComponent.updatePosition(newX, newY);
         }
-
         draw();
         return;
     }
@@ -1055,10 +1056,7 @@ function exitRenameMode() {
     } else {
          componentBeingRenamed.name = newName;
     }
-
-    // After renaming, update its description (based on type, not new name)
     applyDescriptionToComponent(componentBeingRenamed);
-
 
     renameInput.remove();
     renameInput = null;
@@ -1104,12 +1102,6 @@ function enterRenameMode(component) {
         canvasContainer.appendChild(renameInput);
         renameInput.focus();
         renameInput.select();
-    } else if (component.type === 'relay') { // Custom rename for relays
-        const newName = prompt("請輸入繼電器的新名稱:", component.name);
-        if (newName !== null) {
-            component.name = newName.trim();
-            draw();
-        }
     }
 }
 
@@ -1124,170 +1116,172 @@ function applyDescriptionToComponent(component) {
     }
 }
 
-closeContactorEditModalBtn.addEventListener('click', () => {
-    if (selectedComponentForEdit && selectedComponentForEdit.type === 'contactor') {
-        selectedComponentForEdit.name = contactorNameInput.value;
-    }
-    contactorEditModal.classList.add('hidden');
+function closeGenericEditModal() {
+    genericEditModal.classList.add('hidden');
     selectedComponentForEdit = null;
-    draw();
-});
+}
 
-poleOptionsContainer.addEventListener('click', (e) => { 
-    if (e.target.classList.contains('pole-btn')) { 
-        const poles = e.target.dataset.poles; 
-        if (selectedComponentForEdit) { 
-            selectedComponentForEdit.setPoles(poles); 
-            applyDescriptionToComponent(selectedComponentForEdit);
-            draw(); 
-        } 
-        poleModal.classList.add('hidden'); 
-        selectedComponentForEdit = null; 
-    } 
-});
-closePoleModalBtn.addEventListener('click', () => { poleModal.classList.add('hidden'); selectedComponentForEdit = null; });
+function openGenericEditModal(component) {
+    selectedComponentForEdit = component;
+    editOptionsContainer.innerHTML = '';
+    editNumericInputsContainer.innerHTML = '';
+    editOptionsContainer.className = '';
+    
+    const createButton = (text, dataset) => {
+        const btn = document.createElement('button');
+        btn.textContent = text;
+        Object.entries(dataset).forEach(([key, value]) => btn.dataset[key] = value);
+        btn.className = 'edit-option-btn bg-blue-600 hover:bg-blue-700 p-2 rounded text-sm';
+        return btn;
+    };
+    
+    const createNumericInput = (label, id, value, unit) => `
+        <div class="flex items-center justify-center space-x-2 p-2 bg-gray-600 rounded">
+            <label for="${id}" class="text-sm font-medium text-gray-300">${label}:</label>
+            <input type="number" id="${id}" value="${value}" class="bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-24 p-2.5 text-center">
+            <span class="text-sm text-gray-300">${unit}</span>
+        </div>
+    `;
 
-switchModal.addEventListener('click', (e) => {
-    if (e.target.classList.contains('switch-type-btn')) {
-        const type = e.target.dataset.switchType;
-        if (selectedComponentForEdit && selectedComponentForEdit.type === 'switch') {
+    switch(component.type) {
+        case 'power':
+            modalTitle.textContent = '編輯電源';
+            editOptionsContainer.className = 'grid grid-cols-2 gap-4';
+            editOptionsContainer.append(
+                createButton('單相 (110V)', { phase: '1P' }),
+                createButton('三相 (220V)', { phase: '3P' })
+            );
+            editNumericInputsContainer.innerHTML = createNumericInput('電壓 (V)', 'param-input', component.voltage, 'V');
+            break;
+        case 'nfb':
+        case 'fuse':
+        case 'th-ry':
+        case 'resistor': {
+            const typeName = {nfb: 'NFB', fuse: '保險絲', 'th-ry': '積熱電驛', resistor: '電阻器'}[component.type];
+            modalTitle.textContent = `編輯 ${typeName}`;
+            if(component.type === 'nfb') {
+                editOptionsContainer.className = 'grid grid-cols-2 md:grid-cols-4 gap-2';
+                editOptionsContainer.append(...['1P', '2P', '3P', '4P'].map(p => createButton(p, { pole: p })))
+            };
+            if(component.type === 'th-ry') {
+                editOptionsContainer.className = 'grid grid-cols-2 gap-4';
+                editOptionsContainer.append(...[createButton('標準型 (97-98/95-96)', { thRyType: 'A'}), createButton('共點型 (95-98/95-96)', { thRyType: 'B' })])
+            };
+            if(component.amperageLimit != null) editNumericInputsContainer.innerHTML = createNumericInput('安培 (A)', 'param-input', component.amperageLimit, 'A');
+            if(component.type === 'resistor') editNumericInputsContainer.innerHTML = createNumericInput('電阻 (Ω)', 'param-input', component.resistance, 'Ω');
+            break;
+        }
+        case 'ammeter': {
+            modalTitle.textContent = '編輯安培表';
+            const scales = ['5A', '10A', '15A', '20A', '30A', '50A', '100A', '200A'];
+            const buttons = scales.map(s => createButton(s, { scale: s }));
+            buttons.push(createButton('自訂', { scale: 'Custom' }));
+            editOptionsContainer.className = 'grid grid-cols-2 md:grid-cols-3 gap-2';
+            editOptionsContainer.append(...buttons);
+            editNumericInputsContainer.innerHTML = createNumericInput('自訂最大值', 'param-input', component.maxValue, 'A');
+            break;
+        }
+        case 'switch':
+            modalTitle.textContent = '選擇開關類型';
+            editOptionsContainer.className = 'grid grid-cols-2 gap-4';
+            editOptionsContainer.append(
+                createButton('按鈕 (常開 NO)', { switchType: 'pushbutton_no' }),
+                createButton('按鈕 (常閉 NC)', { switchType: 'pushbutton_nc' }),
+                createButton('二段選擇開關', { switchType: 'rotary_2pos' }),
+                createButton('三段選擇開關', { switchType: 'rotary_3pos' })
+            );
+            break;
+        case 'contactor':
+            modalTitle.textContent = '編輯電磁接觸器';
+            const auxButton = component.hasLeftAux 
+                ? createButton('移除輔助接點', { aux: 'remove' }) 
+                : createButton('加裝輔助接點', { aux: 'add' });
+            auxButton.className = `edit-option-btn p-2 rounded text-sm ${component.hasLeftAux ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`;
+            editOptionsContainer.append(auxButton);
+            break;
+        case 'relay':
+            modalTitle.textContent = '選擇繼電器類型';
+            editOptionsContainer.className = 'grid grid-cols-2 md:grid-cols-3 gap-4';
+            editOptionsContainer.append(...Object.keys(RELAY_DATA).map(type => createButton(RELAY_DATA[type].name, { relayType: type })));
+            break;
+        case 'motor':
+            modalTitle.textContent = '選擇馬達類型';
+             editOptionsContainer.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
+            editOptionsContainer.append(
+                createButton('三相六接點馬達', { motorType: '3-phase-6' }),
+                createButton('單相三線式馬達', { motorType: '1-phase-3' }),
+                createButton('單相二線式馬達', { motorType: '1-phase-2' })
+            );
+            break;
+        case 'terminalBlock':
+            modalTitle.textContent = '編輯端子台';
+            const poles = ['6P', '7P', '12P', '15P', '25P'];
+            const orientations = [{val: 'vertical', text: '直式'}, {val: 'horizontal', text: '橫式'}];
+            editOptionsContainer.innerHTML = `
+                <label class="block text-sm font-medium text-gray-300 mb-2">P數 (Poles)</label>
+                <div class="grid grid-cols-3 gap-2 mb-4">${poles.map(p => `<button data-pole="${p}" class="edit-option-btn bg-blue-600 p-2 rounded">${p}</button>`).join('')}</div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">方向 (Orientation)</label>
+                <div class="grid grid-cols-2 gap-2">${orientations.map(o => `<button data-orientation="${o.val}" class="edit-option-btn bg-green-600 p-2 rounded">${o.text}</button>`).join('')}</div>
+            `;
+            break;
+        default:
+            closeGenericEditModal(); // No edit options for this component
+            return;
+    }
+
+    genericEditModal.classList.remove('hidden');
+}
+
+genericEditModal.addEventListener('click', (e) => {
+    const button = e.target.closest('.edit-option-btn');
+    if (button && selectedComponentForEdit) {
+        const { pole, switchType, aux, relayType, thRyType, motorType, orientation, scale, phase } = button.dataset;
+        if (pole) selectedComponentForEdit.setPoles(pole);
+        if (phase) selectedComponentForEdit.setPhaseType(phase);
+        if (switchType) {
             const wasPushButton = selectedComponentForEdit.switchType.startsWith('pushbutton');
             const wasRotary = selectedComponentForEdit.switchType.startsWith('rotary');
-            
-            selectedComponentForEdit.setSwitchType(type);
-            applyDescriptionToComponent(selectedComponentForEdit);
-            
+            selectedComponentForEdit.setSwitchType(switchType);
             const isPushButton = selectedComponentForEdit.switchType.startsWith('pushbutton');
             const isRotary = selectedComponentForEdit.switchType.startsWith('rotary');
-
-            if (isRotary && !wasRotary) {
-                selectedComponentForEdit.name = 'COS' + getNextNumberForType('rotary_switch');
-            } else if (isPushButton && !wasPushButton) {
-                selectedComponentForEdit.name = 'PB' + getNextNumberForType('pushbutton');
-            }
-            draw();
+            if (isRotary && !wasRotary) selectedComponentForEdit.name = 'COS' + getNextNumberForType('rotary_switch');
+            else if (isPushButton && !wasPushButton) selectedComponentForEdit.name = 'PB' + getNextNumberForType('pushbutton');
         }
-        switchModal.classList.add('hidden');
-        selectedComponentForEdit = null;
-    }
-});
-closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
-
-thRyModal.addEventListener('click', (e) => { 
-    if (e.target.classList.contains('th-ry-type-btn')) { 
-        const type = e.target.dataset.thRyType; 
-        if (selectedComponentForEdit && selectedComponentForEdit.type === 'th-ry') { 
-            selectedComponentForEdit.setRelayType(type); 
-            applyDescriptionToComponent(selectedComponentForEdit);
-            draw(); 
-        } 
-        thRyModal.classList.add('hidden'); 
-        selectedComponentForEdit = null; 
-    } 
-});
-closeThRyModalBtn.addEventListener('click', () => { thRyModal.classList.add('hidden'); selectedComponentForEdit = null; });
-
-motorModal.addEventListener('click', (e) => { 
-    if (e.target.classList.contains('motor-type-btn')) { 
-        const type = e.target.dataset.motorType; 
-        if (selectedComponentForEdit && selectedComponentForEdit.type === 'motor') { 
-            selectedComponentForEdit.setMotorType(type); 
-            applyDescriptionToComponent(selectedComponentForEdit);
-            draw(); 
-        } 
-        motorModal.classList.add('hidden'); 
-        selectedComponentForEdit = null; 
-    } 
-});
-closeMotorModalBtn.addEventListener('click', () => { motorModal.classList.add('hidden'); selectedComponentForEdit = null; });
-
-// Relay Modal
-function openRelayModal() {
-    relayOptionsContainer.innerHTML = '';
-    for (const type in RELAY_DATA) {
-        const btn = document.createElement('button');
-        btn.dataset.relayType = type;
-        btn.className = 'relay-type-btn bg-blue-600 hover:bg-blue-700 p-3 rounded text-sm';
-        btn.textContent = RELAY_DATA[type].name;
-        relayOptionsContainer.appendChild(btn);
-    }
-    relayModal.classList.remove('hidden');
-}
-relayOptionsContainer.addEventListener('click', e => {
-    if(e.target.classList.contains('relay-type-btn')) {
-        const type = e.target.dataset.relayType;
-        if (selectedComponentForEdit && selectedComponentForEdit.type === 'relay') {
-            selectedComponentForEdit.setRelayType(type);
-            applyDescriptionToComponent(selectedComponentForEdit);
+        if (aux) selectedComponentForEdit.hasLeftAux = (aux === 'add');
+        if (relayType) selectedComponentForEdit.setRelayType(relayType);
+        if (thRyType) selectedComponentForEdit.setRelayType(thRyType);
+        if (motorType) selectedComponentForEdit.setMotorType(motorType);
+        if (orientation) selectedComponentForEdit.setVariant(selectedComponentForEdit.poleType, orientation);
+        if (scale) selectedComponentForEdit.setScaleType(scale);
+        
+        applyDescriptionToComponent(selectedComponentForEdit);
+        // For instant-update buttons, redraw and potentially close modal
+        if (!['pole', 'orientation'].includes(Object.keys(button.dataset)[0])) {
+             closeGenericEditModal();
         }
-        relayModal.classList.add('hidden');
-        selectedComponentForEdit = null;
         draw();
     }
 });
-closeRelayModalBtn.addEventListener('click', () => {
-    relayModal.classList.add('hidden');
-    selectedComponentForEdit = null;
-});
 
-
-// Terminal Block Modal Logic
-let tempTbSettings = {};
-
-function updateTbModalButtons() {
-    document.querySelectorAll('#tb-pole-options .tb-option-btn').forEach(btn => {
-        const isSelected = btn.dataset.poles === tempTbSettings.poles;
-        btn.classList.toggle('bg-yellow-500', isSelected);
-        btn.classList.toggle('text-gray-900', isSelected);
-        btn.classList.toggle('bg-blue-600', !isSelected);
-        btn.classList.toggle('text-white', !isSelected);
-    });
-    document.querySelectorAll('#tb-orientation-options .tb-option-btn').forEach(btn => {
-        const isSelected = btn.dataset.orientation === tempTbSettings.orientation;
-        btn.classList.toggle('bg-yellow-500', isSelected);
-        btn.classList.toggle('text-gray-900', isSelected);
-        btn.classList.toggle('bg-green-600', !isSelected);
-        btn.classList.toggle('text-white', !isSelected);
-    });
-}
-
-function openTerminalBlockModal() {
-    if (!selectedComponentForEdit || selectedComponentForEdit.type !== 'terminalBlock') return;
-    tempTbSettings.poles = selectedComponentForEdit.poleType;
-    tempTbSettings.orientation = selectedComponentForEdit.orientation;
-    updateTbModalButtons();
-    terminalBlockModal.classList.remove('hidden');
-}
-
-tbPoleOptions.addEventListener('click', e => {
-    const button = e.target.closest('.tb-option-btn');
-    if (button) {
-        tempTbSettings.poles = button.dataset.poles;
-        updateTbModalButtons();
-        if (selectedComponentForEdit) {
-            selectedComponentForEdit.setVariant(tempTbSettings.poles, tempTbSettings.orientation);
-            draw();
+saveModalBtn.addEventListener('click', () => {
+    if (selectedComponentForEdit) {
+        const input = document.getElementById('param-input');
+        if (input) {
+            const value = parseFloat(input.value);
+            if (!isNaN(value) && value >= 0) {
+                 if(selectedComponentForEdit.amperageLimit != null) selectedComponentForEdit.amperageLimit = value;
+                 if(selectedComponentForEdit.type === 'resistor') selectedComponentForEdit.resistance = value;
+                 if(selectedComponentForEdit.type === 'power') selectedComponentForEdit.voltage = value;
+                 if(selectedComponentForEdit.type === 'ammeter') {
+                    selectedComponentForEdit.scaleType = 'Custom';
+                    selectedComponentForEdit.maxValue = value;
+                 }
+            }
         }
     }
+    closeGenericEditModal();
+    draw();
 });
-
-tbOrientationOptions.addEventListener('click', e => {
-    const button = e.target.closest('.tb-option-btn');
-    if (button) {
-        tempTbSettings.orientation = button.dataset.orientation;
-        updateTbModalButtons();
-        if (selectedComponentForEdit) {
-            selectedComponentForEdit.setVariant(tempTbSettings.poles, tempTbSettings.orientation);
-            draw();
-        }
-    }
-});
-
-applyTbChangesBtn.addEventListener('click', () => {
-    terminalBlockModal.classList.add('hidden');
-    selectedComponentForEdit = null;
-});
-
 
 // --- SAVE/LOAD/CSV LOGIC ---
 function parseDataFromArray(dataArray) {
@@ -1312,7 +1306,6 @@ function applyDescriptions(descriptionMap) {
     components.forEach(comp => {
         applyDescriptionToComponent(comp);
     });
-    // If an info box is currently open, refresh its content
     if (infoBoxTarget) {
         showInfoBox(infoBoxTarget);
     }
@@ -1335,34 +1328,21 @@ function getNextNumberForType(type) {
     let prefix = '';
     let filterFn = (c) => c.type === type;
 
-    switch(type) {
-        case 'contactor': prefix = 'MC'; break;
-        case 'motor': prefix = 'M'; break;
-        case 'terminalBlock': prefix = 'TB'; break;
-        case 'th-ry': prefix = 'TH'; break;
-        case 'bulb': prefix = 'PL'; break;
-        case 'rotary_switch':
-            prefix = 'COS';
-            filterFn = c => c.type === 'switch' && c.switchType.startsWith('rotary');
-            break;
-        case 'pushbutton':
-             prefix = 'PB';
-             filterFn = c => c.type === 'switch' && c.switchType.startsWith('pushbutton');
-             break;
-        case 'relay_pr':
-            prefix = 'PR';
-            filterFn = c => c.type === 'relay' && ['2C', '3C', '4C'].includes(c.relayType);
-            break;
-        case 'relay_tr':
-            prefix = 'TR';
-            filterFn = c => c.type === 'relay' && c.relayType === 'ON-delay';
-            break;
-        case 'relay_tr_delta':
-            prefix = 'TR';
-            filterFn = c => c.type === 'relay' && c.relayType.startsWith('Y-delta');
-            break;
-        default: return 1;
-    }
+    const prefixMap = {
+        power: 'PS', contactor: 'MC', motor: 'M', terminalBlock: 'TB',
+        'th-ry': 'TH', nfb: 'NFB', fuse: 'F', resistor: 'R', ammeter: 'A',
+        bulb: 'PL', rotary_switch: 'COS', pushbutton: 'PB',
+        relay_pr: 'PR', relay_tr: 'TR', relay_tr_delta: 'TR'
+    };
+    prefix = prefixMap[type];
+    if(!prefix) return 1;
+
+    if (type === 'rotary_switch') filterFn = c => c.type === 'switch' && c.switchType.startsWith('rotary');
+    else if (type === 'pushbutton') filterFn = c => c.type === 'switch' && c.switchType.startsWith('pushbutton');
+    else if (type === 'relay_pr') filterFn = c => c.type === 'relay' && ['2C', '3C', '4C'].includes(c.relayType);
+    else if (type === 'relay_tr') filterFn = c => c.type === 'relay' && c.relayType === 'ON-delay';
+    else if (type === 'relay_tr_delta') filterFn = c => c.type === 'relay' && c.relayType.startsWith('Y-delta');
+
 
     const existing = components.filter(filterFn);
     let maxNum = 0;
@@ -1370,13 +1350,8 @@ function getNextNumberForType(type) {
     existing.forEach(comp => {
         const nameToTest = (type === 'bulb' && comp.displayName) ? comp.displayName : comp.name;
         if (nameToTest && nameToTest.startsWith(prefix)) {
-            let numStr = '';
-            if (type === 'relay_tr_delta') {
-                numStr = nameToTest.substring(prefix.length).replace('-Δ', '');
-            } else {
-                numStr = nameToTest.substring(prefix.length);
-            }
-            const num = parseInt(numStr);
+            let numStr = nameToTest.substring(prefix.length).replace('-Δ', '');
+            const num = parseInt(numStr, 10);
             if (!isNaN(num) && num > maxNum) maxNum = num;
         }
     });
@@ -1400,7 +1375,12 @@ function saveLayout() {
             if (c.position) data.position = c.position;
             if (c.hasLeftAux !== undefined) data.hasLeftAux = c.hasLeftAux;
             if (c.knobs) data.knobs = c.knobs;
-            // No need to save description, it will be re-applied on load
+            if (c.amperageLimit != null) data.amperageLimit = c.amperageLimit;
+            if (c.resistance != null) data.resistance = c.resistance;
+            if (c.maxValue != null) data.maxValue = c.maxValue;
+            if (c.scaleType != null) data.scaleType = c.scaleType;
+            if (c.voltage != null) data.voltage = c.voltage;
+            if (c.phaseType != null) data.phaseType = c.phaseType;
             return data;
         }),
         wires: wires.map(w => ({
@@ -1447,9 +1427,13 @@ function reconstructLayout(layout) {
             } else if (comp.type === 'terminalBlock'){
                  comp._updateFromVariant(data.poleType, data.orientation);
             } else if (comp.type === 'relay') {
-                 comp.setRelayType(data.relayType); // This also rebuilds connectors
+                 comp.setRelayType(data.relayType);
                  if (data.knobs) comp.knobs = data.knobs;
-            } else {
+            } else if (comp.type === 'power') {
+                comp._updateDimensions();
+                comp._rebuildConnectors();
+            }
+             else {
                 comp._updateDimensions();
                 comp._rebuildConnectors();
             }
@@ -1471,10 +1455,7 @@ function reconstructLayout(layout) {
     });
 
     nextId = layout.nextId || 0;
-    
-    // Apply descriptions to the newly loaded components
     applyDescriptions(componentDescriptionMap);
-
     draw();
 }
 
@@ -1517,14 +1498,13 @@ canvas.addEventListener('wheel', e => {
     draw();
 }, { passive: true });
 
-canvas.addEventListener('touchstart', e => { e.preventDefault(); /* Touch events ommited for brevity */ }, { passive: false });
-canvas.addEventListener('touchmove', e => { e.preventDefault(); /* Touch events ommited for brevity */ }, { passive: false });
-canvas.addEventListener('touchend', e => { e.preventDefault(); /* Touch events ommited for brevity */ }, { passive: false });
+canvas.addEventListener('touchstart', e => { e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
+canvas.addEventListener('touchend', e => { e.preventDefault(); }, { passive: false });
 
 saveButton.addEventListener('click', saveLayout);
 loadButton.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', loadLayout);
-
 
 let lastTime = 0;
 function animate(currentTime) {
@@ -1532,24 +1512,19 @@ function animate(currentTime) {
     const deltaTime = currentTime - lastTime;
     lastTime = currentTime;
 
-    // 1. Update internal logic of components (like timers)
     components.forEach(c => {
         if (typeof c.updateLogic === 'function') {
             c.updateLogic(deltaTime);
         }
     });
 
-    // 2. Propagate electrical potential
     runSimulation();
-    
-    // 3. Redraw the canvas
     draw();
-
     requestAnimationFrame(animate);
 }
 
 resizeCanvas();
-loadInitialDescriptions(); // Load descriptions on startup
+loadInitialDescriptions();
 lastTime = performance.now();
 requestAnimationFrame(animate);
 wireColorPicker.style.backgroundColor = defaultWireColor;

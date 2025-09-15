@@ -1,6 +1,6 @@
 // --- COMPONENT CLASSES ---
 class Component {
-    constructor(x, y, type) { this.id = generateId(); this.x = snapToGrid(x); this.y = snapToGrid(y); this.type = type; this.width = 0; this.height = 0; this.connectors = []; this.isPowered = false; this.name = ''; }
+    constructor(x, y, type) { this.id = generateId(); this.x = snapToGrid(x); this.y = snapToGrid(y); this.type = type; this.width = 0; this.height = 0; this.connectors = []; this.isPowered = false; this.name = ''; this.amperageLimit = null; this.current = 0; this.resistance = 0.01; }
     setPoles(poleType) { this.poleType = poleType; this._updateDimensions(); this._rebuildConnectors(); }
     setRelayType(type) { this.relayType = type; this._updateDimensions(); this._rebuildConnectors(); }
     setMotorType(type) { this.motorType = type; this._updateDimensions(); this._rebuildConnectors(); }
@@ -60,13 +60,91 @@ class Component {
     handleInteraction(x, y) { if (typeof this.toggle === 'function') this.toggle(); }
     toggle() {}
     getInternalConnections() { return []; }
-    // 新增: 取得用於查詢說明的鍵值
     getDescriptionKey() { return this.type; }
     _rebuildConnectors() { throw new Error("RebuildConnectors must be implemented for " + this.type); }
 }
 
+class PowerSource extends Component {
+    constructor(x, y) {
+        super(x, y, 'power');
+        this.phaseType = '1P'; // '1P' or '3P'
+        this.voltage = 110;
+        this._updateDimensions();
+        this._rebuildConnectors();
+    }
+
+    _updateDimensions() {
+        this.width = this.phaseType === '1P' ? GRID_SIZE * 4 : GRID_SIZE * 6;
+        this.height = GRID_SIZE * 3;
+    }
+
+    _rebuildConnectors() {
+        this.connectors = [];
+        const yPos = this.y + this.height;
+        if (this.phaseType === '1P') {
+            this.connectors.push({ id: `${this.id}-L`, parent: this, x: this.x + GRID_SIZE * 1, y: yPos, type: 'positive', pole: 'L', potential: 0 });
+            this.connectors.push({ id: `${this.id}-N`, parent: this, x: this.x + GRID_SIZE * 3, y: yPos, type: 'neutral', pole: 'N', potential: 0 });
+        } else { // 3P
+            this.connectors.push({ id: `${this.id}-R`, parent: this, x: this.x + GRID_SIZE * 1, y: yPos, type: 'positive', pole: 'R', potential: 0 });
+            this.connectors.push({ id: `${this.id}-S`, parent: this, x: this.x + GRID_SIZE * 3, y: yPos, type: 'positive', pole: 'S', potential: 0 });
+            this.connectors.push({ id: `${this.id}-T`, parent: this, x: this.x + GRID_SIZE * 5, y: yPos, type: 'positive_alt', pole: 'T', potential: 0 }); // Use a different type for coloring
+        }
+    }
+    
+    setPhaseType(type) {
+        this.phaseType = type;
+        this.voltage = type === '1P' ? 110 : 220;
+        this._updateDimensions();
+        this._rebuildConnectors();
+    }
+
+    draw(ctx) {
+        const baseIsPowered = true; 
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        // Draw Voltage Text
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = `bold ${GRID_SIZE * 1}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${this.voltage}V`, this.x + this.width / 2, this.y + this.height / 2 - GRID_SIZE);
+
+        // Draw special connectors
+        this.connectors.forEach(c => {
+            const isBlue = c.pole === 'N' || c.pole === 'T';
+            ctx.strokeStyle = isBlue ? '#4299e1' : '#f6e05e';
+            ctx.fillStyle = isBlue ? '#4299e1' : '#f6e05e';
+
+            // Draw the symbol
+            ctx.beginPath();
+            ctx.arc(c.x, c.y - GRID_SIZE, 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(c.x - 5, c.y - GRID_SIZE + 5);
+            ctx.lineTo(c.x + 5, c.y - GRID_SIZE - 5);
+            ctx.stroke();
+            
+            // Draw line to the edge
+            ctx.beginPath();
+            ctx.moveTo(c.x, c.y );
+            ctx.lineTo(c.x, c.y - GRID_SIZE/1.6);
+            ctx.stroke();
+
+            // Draw Pole Label
+            ctx.font = `${GRID_SIZE*0.7}px sans-serif`;
+            ctx.fillText(c.pole, c.x, c.y - GRID_SIZE * 1.8);
+            
+            // Draw the actual connector for snapping wires
+            drawConnector(ctx, c);
+        });
+    }
+}
+
+
 class NFB extends Component {
-    constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = false; this.name = ''; this._updateDimensions(); this._rebuildConnectors(); }
+    constructor(x, y) { super(x, y, 'nfb'); this.poleType = '2P'; this.isOn = false; this.name = ''; this.amperageLimit = 20; this._updateDimensions(); this._rebuildConnectors(); }
     _updateDimensions() {
         let poleCount = 0;
         if (this.poleType === '1P') poleCount = 1;
@@ -100,9 +178,8 @@ class NFB extends Component {
              } else {
                 xPos = this.x + GRID_SIZE * (i + 1);
              }
-             const isNeutral = label === 'N' || (this.poleType === '3P' && label === 'T');
-             this.connectors.push({ id: `${this.id}-in-${i}`, parent: this, x: xPos, y: this.y, type: isNeutral ? 'neutral' : 'positive', pole: label, potential: 0 });
-             this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'output', pole: label, potential: 0 });
+             this.connectors.push({ id: `${this.id}-in-${i}`, parent: this, x: xPos, y: this.y, type: 'in', pole: label, potential: 0 });
+             this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'out', pole: label, potential: 0 });
         });
     }
     handleInteraction(x, y, eventType) { 
@@ -113,8 +190,8 @@ class NFB extends Component {
     getInternalConnections() {
         const connections = [];
         if (this.isOn) {
-            this.connectors.filter(c => c.type === 'positive' || c.type === 'neutral').forEach(startConn => {
-                const endConn = this.connectors.find(c => c.type === 'output' && c.pole === startConn.pole);
+            this.connectors.filter(c => c.type === 'in').forEach(startConn => {
+                const endConn = this.connectors.find(c => c.type === 'out' && c.pole === startConn.pole);
                 if (startConn && endConn) connections.push([startConn, endConn]);
             });
         }
@@ -137,22 +214,24 @@ class NFB extends Component {
         ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
         ctx.lineWidth = 2; ctx.strokeRect(this.x, this.y, this.width, this.height);
         
-        this.connectors.filter(c => c.type !== 'output').forEach(c => {
+        this.connectors.filter(c => c.type === 'in').forEach(c => {
              ctx.fillStyle = '#a0aec0';
              ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
              ctx.fillText(c.pole, c.x, this.y + GRID_SIZE * 2.8);
              const startY = this.y + GRID_SIZE * 3.5; const endY = this.y + this.height - GRID_SIZE;
 
-             const outputConn = this.connectors.find(conn => conn.pole === c.pole && conn.type === 'output');
+             const outputConn = this.connectors.find(conn => conn.pole === c.pole && conn.type === 'out');
 
-             let lineColor = '#a0aec0'; // Default gray
-             if (outputConn && outputConn.potential !== 0) {
-                 if (c.pole === 'N' || (this.poleType === '3P' && c.pole === 'T')) {
-                     lineColor = '#4299e1'; // Blue
-                 } else {
-                     lineColor = '#f6e05e'; // Default energized yellow
-                 }
-             }
+            let lineColor;
+            const inConnPotential = c.potential;
+
+            if (inConnPotential === -1 || (this.poleType === '3P' && c.pole === 'T')) {
+                 lineColor = '#4299e1'; // Blue for neutral/T
+            } else if (inConnPotential === 1) {
+                 lineColor = '#f6e05e'; // Yellow for positive
+            } else {
+                 lineColor = '#a0aec0'; // Gray for unpowered
+            }
              ctx.strokeStyle = lineColor;
 
              ctx.beginPath(); ctx.moveTo(c.x, startY);
@@ -161,11 +240,10 @@ class NFB extends Component {
              ctx.stroke();
         });
 
-        // --- Text drawn last for visibility ---
         ctx.fillStyle = ctx.strokeStyle; ctx.font = `${GRID_SIZE*0.7}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         const displayName = this.name || 'NFB';
         ctx.fillText(displayName, this.x + this.width / 2, this.y + GRID_SIZE * 0.7);
-        ctx.fillText(this.poleType, this.x + this.width / 2, this.y + GRID_SIZE * 1.7);
+        ctx.fillText(`${this.poleType} ${this.amperageLimit}A`, this.x + this.width / 2, this.y + GRID_SIZE * 1.7);
         
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
@@ -179,7 +257,8 @@ class Bulb extends Component {
         this.width = GRID_SIZE * 2;
         this.height = GRID_SIZE * 2;
         this.colorIndex = colorIndex;
-        this.displayName = ''; // 用於顯示 PL1, PL2...
+        this.displayName = '';
+        this.resistance = 220; // 假設一個電阻值
         this._updateColor();
         this._rebuildConnectors();
     }
@@ -189,7 +268,6 @@ class Bulb extends Component {
             { id: `${this.id}-1`, parent: this, x: this.x + this.width / 2, y: this.y + this.height, potential: 0 }
         ];
     }
-    // name 屬性 (RL, YL) 用於內部顏色邏輯
     _updateColor() { const c = bulbColors[this.colorIndex]; this.color = c.color; this.name = c.label; }
     cycleColor() { this.colorIndex = (this.colorIndex + 1) % bulbColors.length; this._updateColor(); }
     setName(newName) {
@@ -199,7 +277,6 @@ class Bulb extends Component {
             this.name = newColor.label;
             this.colorIndex = bulbColors.findIndex(c => c.label === newColor.label);
         } else {
-             // 如果輸入的不是顏色代碼，則更新顯示名稱
             this.displayName = newName.toUpperCase();
         }
     }
@@ -237,8 +314,7 @@ class Bulb extends Component {
             drawConnector(ctx, c);
         });
 
-        // --- Text drawn last for visibility ---
-        const textToDisplay = this.displayName || this.name; // 優先顯示 displayName (PL1)
+        const textToDisplay = this.displayName || this.name;
         ctx.fillStyle = this.isPowered ? 'black' : this.color;
         ctx.font = `${GRID_SIZE*0.9}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(textToDisplay, this.x + this.width / 2, this.y + this.height / 2);
@@ -266,7 +342,8 @@ class Switch extends Component {
             this.connectors.push({ id: `${this.id}-in`, parent: this, x: cX, y: this.y, type: 'in', potential: 0 });
             this.connectors.push({ id: `${this.id}-out`, parent: this, x: cX, y: this.y + this.height, type: 'out', potential: 0 });
         } else if (this.switchType === 'rotary_2pos') {
-            this.connectors.push({ id: `${this.id}-com`, parent: this, x: cX, y: this.y, type: 'com', potential: 0 });
+            this.connectors.push({ id: `${this.id}-in_left`, parent: this, x: this.x + GRID_SIZE, y: this.y, type: 'in_left', potential: 0 });
+            this.connectors.push({ id: `${this.id}-in_right`, parent: this, x: this.x + this.width - GRID_SIZE, y: this.y, type: 'in_right', potential: 0 });
             this.connectors.push({ id: `${this.id}-out_left`, parent: this, x: this.x + GRID_SIZE, y: this.y + this.height, type: 'out_left', potential: 0 });
             this.connectors.push({ id: `${this.id}-out_right`, parent: this, x: this.x + this.width - GRID_SIZE, y: this.y + this.height, type: 'out_right', potential: 0 });
         } else if (this.switchType === 'rotary_3pos') {
@@ -283,9 +360,15 @@ class Switch extends Component {
             const isClosed = (isNo && this.isPressed) || (!isNo && !this.isPressed);
             if (isClosed) connections.push([this.connectors[0], this.connectors[1]]);
         } else if (this.switchType === 'rotary_2pos') {
-            const com = this.connectors.find(c => c.type === 'com');
-            const out = this.position === 1 ? this.connectors.find(c => c.type === 'out_left') : this.connectors.find(c => c.type === 'out_right');
-            if (com && out) connections.push([com, out]);
+            if (this.position === 1) { // Left position
+                const in_left = this.connectors.find(c => c.type === 'in_left');
+                const out_left = this.connectors.find(c => c.type === 'out_left');
+                if (in_left && out_left) connections.push([in_left, out_left]);
+            } else { // Right position (position === 2)
+                const in_right = this.connectors.find(c => c.type === 'in_right');
+                const out_right = this.connectors.find(c => c.type === 'out_right');
+                if (in_right && out_right) connections.push([in_right, out_right]);
+            }
         } else if (this.switchType === 'rotary_3pos') {
             const com = this.connectors.find(c => c.type === 'com');
             let out = null;
@@ -353,7 +436,6 @@ class Switch extends Component {
         else { ctx.moveTo(cX, midY - 5); ctx.lineTo(cX + 8, midY - 2); }
         ctx.stroke();
 
-        // --- Text drawn last for visibility ---
         ctx.fillStyle = this.connectors.some(c => c.potential !== 0) ? '#f6e05e' : '#a0aec0';
         ctx.fillText(this.name || '按鈕', this.x + this.width/2, this.y + GRID_SIZE * 0.7);
         const typeLabel = this.switchType.endsWith('no') ? 'NO' : 'NC';
@@ -365,7 +447,7 @@ class Switch extends Component {
 
         const cX = this.x + this.width / 2;
         const cY = this.y + this.height / 2;
-        const radius = (this.width / 2) * 0.7; // Radius for the indicator line
+        const radius = (this.width / 2) * 0.7;
 
         ctx.beginPath();
         ctx.arc(cX, cY, 4, 0, Math.PI * 2);
@@ -397,6 +479,7 @@ class MagneticContactor extends Component {
         this.name = '';
         this.coilEnergized = false;
         this.hasLeftAux = false;
+        this.resistance = 150; // 線圈電阻
         this._updateDimensions();
         this._rebuildConnectors();
     }
@@ -413,27 +496,19 @@ class MagneticContactor extends Component {
         const mainInY = this.y + GRID_SIZE * 2;
         const mainOutY = this.y + GRID_SIZE * 5;
 
-        // A1, A2 Coil connectors
         this.connectors.push({ id: `${this.id}-A1`, parent: this, x: this.x + offsetX + GRID_SIZE * 2, y: coilY, type: 'coil', potential: 0 });
         this.connectors.push({ id: `${this.id}-A2`, parent: this, x: this.x + offsetX + GRID_SIZE * 4 , y: coilY, type: 'coil', potential: 0 });
-
-        // Main contacts L1,L2,L3
         this.connectors.push({ id: `${this.id}-L1`, parent: this, x: this.x + offsetX + GRID_SIZE, y: mainInY, type: 'main-in', pole: 0, potential: 0 });
         this.connectors.push({ id: `${this.id}-L2`, parent: this, x: this.x + offsetX + GRID_SIZE * 3, y: mainInY, type: 'main-in', pole: 1, potential: 0 });
         this.connectors.push({ id: `${this.id}-L3`, parent: this, x: this.x + offsetX + GRID_SIZE * 5, y: mainInY, type: 'main-in', pole: 2, potential: 0 });
-
-        // Main contacts T1,T2,T3
         this.connectors.push({ id: `${this.id}-T1`, parent: this, x: this.x + offsetX + GRID_SIZE, y: mainOutY, type: 'main-out', pole: 0, potential: 0 });
         this.connectors.push({ id: `${this.id}-T2`, parent: this, x: this.x + offsetX + GRID_SIZE * 3, y: mainOutY, type: 'main-out', pole: 1, potential: 0 });
         this.connectors.push({ id: `${this.id}-T3`, parent: this, x: this.x + offsetX + GRID_SIZE * 5, y: mainOutY, type: 'main-out', pole: 2, potential: 0 });
-
-        // Right side built-in aux contacts
         this.connectors.push({ id: `${this.id}-aux-no-in`, parent: this, x: this.x + offsetX + GRID_SIZE * 7, y: mainInY, type: 'aux-no-in', potential: 0 });
         this.connectors.push({ id: `${this.id}-aux-no-out`, parent: this, x: this.x + offsetX + GRID_SIZE * 7, y: mainOutY, type: 'aux-no-out', potential: 0 });
         this.connectors.push({ id: `${this.id}-aux-nc-in`, parent: this, x: this.x + offsetX + GRID_SIZE * 8, y: mainInY, type: 'aux-nc-in', potential: 0 });
         this.connectors.push({ id: `${this.id}-aux-nc-out`, parent: this, x: this.x + offsetX + GRID_SIZE * 8, y: mainOutY, type: 'aux-nc-out', potential: 0 });
 
-        // Left side add-on aux contacts
         if (this.hasLeftAux) {
             this.connectors.push({ id: `${this.id}-aux-left-nc-in`, parent: this, x: this.x + GRID_SIZE, y: mainInY, type: 'aux-left-nc-in', potential: 0 });
             this.connectors.push({ id: `${this.id}-aux-left-nc-out`, parent: this, x: this.x + GRID_SIZE, y: mainOutY, type: 'aux-left-nc-out', potential: 0 });
@@ -462,12 +537,14 @@ class MagneticContactor extends Component {
                 connections.push([this.connectors.find(c=>c.type==='aux-left-nc-in'), this.connectors.find(c=>c.type==='aux-left-nc-out')]);
             }
         }
-        return connections.filter(p => p[0] && p[1]); // Filter out invalid pairs
+        // The coil itself is a connection
+        connections.push([this.connectors.find(c => c.type === 'coil' && c.id.endsWith('A1')), this.connectors.find(c => c.type === 'coil' && c.id.endsWith('A2'))]);
+        return connections.filter(p => p[0] && p[1]);
     }
     getNamePosition() {
         const fontSize = GRID_SIZE * 0.8;
         const textWidth = (this.name || '').length * fontSize * 0.7 + 10;
-        const textX = this.x - GRID_SIZE * 0.5; // Right aligned here
+        const textX = this.x - GRID_SIZE * 0.5;
         return {
             x: textX - textWidth,
             y: this.y + this.height / 2 - fontSize / 2,
@@ -494,16 +571,14 @@ class MagneticContactor extends Component {
         ctx.fillText('A2', this.x + offsetX + GRID_SIZE * 4, this.y - GRID_SIZE * 0.5);
         ctx.strokeRect(this.x + offsetX + GRID_SIZE * 2, this.y, GRID_SIZE * 2, GRID_SIZE);
 
-        // Draw indicator square
         const squareSize = GRID_SIZE * 1.2;
-        const squareX = this.x + offsetX + (GRID_SIZE*6)/2 - (squareSize/2); // Centered in the main 3P part
+        const squareX = this.x + offsetX + (GRID_SIZE*6)/2 - (squareSize/2);
         const squareY = mainBoxY + mainBoxHeight / 2 - (squareSize / 2);
-        ctx.fillStyle = this.coilEnergized ? '#1a202c' : '#718096'; // Black or Gray-600
+        ctx.fillStyle = this.coilEnergized ? '#1a202c' : '#718096';
         ctx.fillRect(squareX, squareY, squareSize, squareSize);
         ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
         ctx.strokeRect(squareX, squareY, squareSize, squareSize);
 
-        // Draw main contacts
         for (let i = 0; i < 3; i++) {
             const xPos = this.x + offsetX + GRID_SIZE + (i * GRID_SIZE * 2);
             const startY = mainBoxY + GRID_SIZE;
@@ -518,16 +593,12 @@ class MagneticContactor extends Component {
             ctx.stroke();
         }
 
-        // Separator between Main and Right Aux
         ctx.beginPath(); ctx.moveTo(this.x + offsetX + GRID_SIZE * 6, mainBoxY); ctx.lineTo(this.x + offsetX + GRID_SIZE * 6, mainBoxY + mainBoxHeight); ctx.stroke();
-
-        // Draw Right Aux Contacts
         const auxStartY = mainBoxY + GRID_SIZE;
         const auxEndY = mainBoxY + mainBoxHeight - GRID_SIZE;
-        // Right NO
         const noX = this.x + offsetX + GRID_SIZE * 7;
         ctx.fillText('NO', noX, auxStartY - GRID_SIZE * 0.5);
-        ctx.fillText('14', noX, auxEndY + GRID_SIZE * 0.5); // Common numbering
+        ctx.fillText('14', noX, auxEndY + GRID_SIZE * 0.5);
         ctx.beginPath(); ctx.arc(noX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(noX, auxStartY + 3); ctx.lineTo(noX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
         ctx.beginPath(); ctx.arc(noX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(noX, auxEndY - 3); ctx.lineTo(noX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
         ctx.beginPath();
@@ -535,10 +606,9 @@ class MagneticContactor extends Component {
         else { ctx.moveTo(noX, auxStartY + GRID_SIZE * 0.5); ctx.lineTo(noX + 8, auxStartY + GRID_SIZE * 0.5 - 3); }
         ctx.stroke();
 
-        // Right NC
         const ncX = this.x + offsetX + GRID_SIZE * 8;
         ctx.fillText('NC', ncX, auxStartY - GRID_SIZE * 0.5);
-        ctx.fillText('22', ncX, auxEndY + GRID_SIZE * 0.5); // Common numbering
+        ctx.fillText('22', ncX, auxEndY + GRID_SIZE * 0.5);
         ctx.beginPath(); ctx.arc(ncX, auxStartY, 3, 0, Math.PI * 2); ctx.moveTo(ncX, auxStartY + 3); ctx.lineTo(ncX, auxStartY + GRID_SIZE * 0.5); ctx.stroke();
         ctx.beginPath(); ctx.arc(ncX, auxEndY, 3, 0, Math.PI * 2); ctx.moveTo(ncX, auxEndY - 3); ctx.lineTo(ncX, auxEndY - GRID_SIZE * 0.5); ctx.stroke();
         ctx.beginPath();
@@ -564,7 +634,6 @@ class MagneticContactor extends Component {
             drawConnector(ctx, c);
         });
 
-        // --- Text drawn last for visibility ---
         ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
         ctx.font = `${GRID_SIZE*0.8}px sans-serif`;
         ctx.textAlign = 'right';
@@ -579,6 +648,7 @@ class FuseHolder extends Component {
         this.width = GRID_SIZE * 2;
         this.height = GRID_SIZE * 4;
         this.isBlown = false;
+        this.amperageLimit = 10;
         this._rebuildConnectors();
     }
     _rebuildConnectors() {
@@ -621,6 +691,11 @@ class FuseHolder extends Component {
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
         });
+
+        ctx.fillStyle = '#a0aec0';
+        ctx.font = `${GRID_SIZE*0.6}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.fillText(`${this.amperageLimit}A`, cX, this.y - 2);
+
     }
 }
 
@@ -628,9 +703,10 @@ class ThermalOverloadRelay extends Component {
     constructor(x, y) {
         super(x, y, 'th-ry');
         this.isTripped = false;
-        this.relayType = 'A'; // 'A' for standard, 'B' for common point
+        this.relayType = 'A';
         this.isPressingTest = false;
         this.name = '';
+        this.amperageLimit = 5;
         this._updateDimensions();
         this._rebuildConnectors();
     }
@@ -652,25 +728,23 @@ class ThermalOverloadRelay extends Component {
 
     updatePosition(newX, newY){
         super.updatePosition(newX, newY);
-        this._updateDimensions(); // Recalculate button position
+        this._updateDimensions();
     }
 
     _rebuildConnectors() {
         this.connectors = [];
-        // Main contacts
         for (let i = 0; i < 3; i++) {
             const xPos = this.x + GRID_SIZE + (i * GRID_SIZE * 2);
             this.connectors.push({ id: `${this.id}-L${i+1}`, parent: this, x: xPos, y: this.y, type: 'main-in', pole: `L${i+1}`, potential: 0 });
             this.connectors.push({ id: `${this.id}-T${i+1}`, parent: this, x: xPos, y: this.y + this.height, type: 'main-out', pole: `T${i+1}`, potential: 0 });
         }
 
-        // Aux contacts are tight with 3-grid height, placed closer
-        if (this.relayType === 'A') { // Standard
+        if (this.relayType === 'A') {
             this.connectors.push({ id: `${this.id}-97`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 0.5, type: 'aux-no-in', pole: '97', potential: 0 });
             this.connectors.push({ id: `${this.id}-98`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 1.0, type: 'aux-no-out', pole: '98', potential: 0 });
             this.connectors.push({ id: `${this.id}-95`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 2.0, type: 'aux-nc-in', pole: '95', potential: 0 });
             this.connectors.push({ id: `${this.id}-96`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 2.5, type: 'aux-nc-out', pole: '96', potential: 0 });
-        } else { // Common point
+        } else {
             this.connectors.push({ id: `${this.id}-95`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 0.5, type: 'aux-com', pole: '95', potential: 0 });
             this.connectors.push({ id: `${this.id}-96`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 1.5, type: 'aux-nc-out', pole: '96', potential: 0 });
             this.connectors.push({ id: `${this.id}-98`, parent: this, x: this.x + this.width, y: this.y + GRID_SIZE * 2.5, type: 'aux-no-out', pole: '98', potential: 0 });
@@ -679,11 +753,9 @@ class ThermalOverloadRelay extends Component {
     
     getInternalConnections() {
         const connections = [];
-        // Main contacts are always connected
         for(let i=1; i<=3; i++) {
             connections.push([this.connectors.find(c=>c.pole===`L${i}`), this.connectors.find(c=>c.pole===`T${i}`)]);
         }
-        // Aux contacts
         if (this.relayType === 'A') {
             if (this.isTripped) {
                 connections.push([this.connectors.find(c=>c.pole==='97'), this.connectors.find(c=>c.pole==='98')]);
@@ -707,7 +779,7 @@ class ThermalOverloadRelay extends Component {
             this.isPressingTest = true;
             setTimeout(() => { this.isPressingTest = false; draw(); }, 200);
         } else if (this.isTripped) {
-            this.isTripped = false; // Reset on main body click
+            this.isTripped = false;
         }
     }
 
@@ -717,55 +789,38 @@ class ThermalOverloadRelay extends Component {
         ctx.lineWidth = 2;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
 
-        // Draw Trip Test Button
         const btn = this.tripButtonRect;
         ctx.fillStyle = this.isTripped ? '#a0aec0' : (this.isPressingTest ? '#fef08a' : '#facc15');
         ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
         ctx.strokeStyle = '#a0aec0';
         ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
 
-        // Draw aux contacts representation on the right
         const auxX = this.x + this.width - GRID_SIZE;
-
         ctx.font = `${GRID_SIZE * 0.6}px sans-serif`;
         ctx.fillStyle = '#a0aec0';
-
-        // NC contact (95-96)
         const ncY = this.y + this.height * 0.7;
         ctx.fillText('95', auxX, ncY - 10);
         ctx.fillText('96', auxX, ncY + 10);
         ctx.beginPath();
-        if (this.isTripped) { // Open
-            ctx.moveTo(auxX, ncY - 5); ctx.lineTo(auxX + 6, ncY - 2);
-        } else { // Closed
-            ctx.moveTo(auxX, ncY - 5); ctx.lineTo(auxX, ncY + 5);
-        }
+        if (this.isTripped) { ctx.moveTo(auxX, ncY - 5); ctx.lineTo(auxX + 6, ncY - 2);
+        } else { ctx.moveTo(auxX, ncY - 5); ctx.lineTo(auxX, ncY + 5); }
         ctx.stroke();
 
-        // NO contact (97-98)
         const noY = this.y + this.height * 0.3;
         ctx.fillText('97', auxX, noY - 10);
         ctx.fillText('98', auxX, noY + 10);
         ctx.beginPath();
-        if (this.isTripped) { // Closed
-             ctx.moveTo(auxX, noY - 5); ctx.lineTo(auxX, noY + 5);
-        } else { // Open
-            ctx.moveTo(auxX, noY - 5); ctx.lineTo(auxX + 6, noY - 2);
-        }
+        if (this.isTripped) { ctx.moveTo(auxX, noY - 5); ctx.lineTo(auxX, noY + 5);
+        } else { ctx.moveTo(auxX, noY - 5); ctx.lineTo(auxX + 6, noY - 2); }
         ctx.stroke();
 
-        // Draw trip indicator
         if (this.isTripped) {
-            ctx.fillStyle = '#facc15'; // yellow-400
+            ctx.fillStyle = '#facc15';
             ctx.beginPath();
             const cx = this.x + this.width / 2;
             const cy = this.y + this.height / 2;
-            ctx.moveTo(cx - 5, cy + 10);
-            ctx.lineTo(cx + 5, cy - 5);
-            ctx.lineTo(cx, cy - 5);
-            ctx.lineTo(cx + 10, cy - 20);
-            ctx.lineTo(cx, cy);
-            ctx.lineTo(cx + 5, cy);
+            ctx.moveTo(cx - 5, cy + 10); ctx.lineTo(cx + 5, cy - 5); ctx.lineTo(cx, cy - 5);
+            ctx.lineTo(cx + 10, cy - 20); ctx.lineTo(cx, cy); ctx.lineTo(cx + 5, cy);
             ctx.lineTo(cx - 5, cy + 10);
             ctx.closePath();
             ctx.fill();
@@ -775,7 +830,6 @@ class ThermalOverloadRelay extends Component {
             drawConnector(ctx, c);
         });
 
-        // --- Text drawn last for visibility ---
         ctx.fillStyle = this.isTripped ? '#ef4444' : (baseIsPowered ? '#f6e05e' : '#a0aec0');
         ctx.font = `${GRID_SIZE * 0.9}px sans-serif`;
         ctx.textAlign = 'center';
@@ -788,7 +842,7 @@ class Motor extends Component {
     constructor(x, y) {
         super(x, y, 'motor');
         this.name = '';
-        this.motorType = '3-phase-6'; // Default
+        this.motorType = '3-phase-6';
         this.isPowered = false;
         this.animationFrame = 0;
         this._updateDimensions();
@@ -816,11 +870,9 @@ class Motor extends Component {
 
         switch (this.motorType) {
             case '3-phase-6':
-                // Row 1: U1, V1, W1
                 this.connectors.push({ id: `${this.id}-U1`, parent: this, x: this.x + GRID_SIZE, y: topRowY, pole: 'U1', potential: 0 });
                 this.connectors.push({ id: `${this.id}-V1`, parent: this, x: cx, y: topRowY, pole: 'V1', potential: 0 });
                 this.connectors.push({ id: `${this.id}-W1`, parent: this, x: this.x + this.width - GRID_SIZE, y: topRowY, pole: 'W1', potential: 0 });
-                // Row 2: W2, U2, V2
                 this.connectors.push({ id: `${this.id}-W2`, parent: this, x: this.x + GRID_SIZE, y: bottomRowY, pole: 'W2', potential: 0 });
                 this.connectors.push({ id: `${this.id}-U2`, parent: this, x: cx, y: bottomRowY, pole: 'U2', potential: 0 });
                 this.connectors.push({ id: `${this.id}-V2`, parent: this, x: this.x + this.width - GRID_SIZE, y: bottomRowY, pole: 'V2', potential: 0 });
@@ -840,7 +892,7 @@ class Motor extends Component {
     getNamePosition() {
         const fontSize = GRID_SIZE * 1.5;
         const cx = this.x + this.width / 2;
-        const cy = this.y + (GRID_SIZE * 5) / 2; // body height is 5 grids
+        const cy = this.y + (GRID_SIZE * 5) / 2;
         const textWidth = (this.name || '').length * fontSize * 0.6 + 10;
         return {
            x: cx - textWidth/2,
@@ -864,21 +916,18 @@ class Motor extends Component {
         ctx.strokeStyle = this.isPowered ? '#f6e05e' : '#a0aec0';
         ctx.lineWidth = 2;
 
-        // Main body
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
         ctx.stroke();
 
-        // Rotation indicator
         if (this.isPowered) {
             this.animationFrame++;
             ctx.save();
             ctx.translate(cx, cy);
-            ctx.rotate(this.animationFrame * 0.1); // Speed of rotation
+            ctx.rotate(this.animationFrame * 0.1);
             ctx.beginPath();
             ctx.arc(0, 0, radius + 5, -0.5 * Math.PI, 0);
             ctx.stroke();
-            // Arrowhead
             ctx.moveTo(radius + 5, -5);
             ctx.lineTo(radius + 10, 0);
             ctx.lineTo(radius + 5, 5);
@@ -888,7 +937,6 @@ class Motor extends Component {
             this.animationFrame = 0;
         }
 
-        // Connectors
         this.connectors.forEach(c => {
             drawConnector(ctx, c);
             ctx.fillStyle = '#a0aec0';
@@ -897,7 +945,6 @@ class Motor extends Component {
             ctx.fillText(c.pole, c.x, c.y + yOffset);
         });
 
-        // --- Text drawn last for visibility ---
         ctx.fillStyle = ctx.strokeStyle;
         ctx.font = `${GRID_SIZE * 1.5}px sans-serif`;
         ctx.textAlign = 'center';
@@ -1028,43 +1075,15 @@ class TerminalBlock extends Component {
 
         this.connectors.forEach(c => drawConnector(ctx, c));
         
-        // --- Text drawn last for visibility ---
         if (this.namePos && this.name) {
             const x = this.x + (this.namePos.x - this.minX);
-            const y = this.y + (this.namePos.y - this.minY) - 5; // 向上微調
-            ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0'; // 再次確保顏色正確
-            ctx.font = `bold ${GRID_SIZE * 0.8}px sans-serif`; // 加大字體並加粗
+            const y = this.y + (this.namePos.y - this.minY) - 5;
+            ctx.fillStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+            ctx.font = `bold ${GRID_SIZE * 0.8}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(this.name, x, y);
         }
-    }
-}
-
-
-class Wire {
-    constructor(startConnector, endConnector, path) {
-        this.id = generateId();
-        this.start = startConnector;
-        this.end = endConnector;
-        this.potential = 0;
-        this.color = defaultWireColor;
-        this.thickness = defaultWireThickness;
-        this.path = path;
-    }
-    calculatePath() {
-        if (!this.start || !this.end || !this.path || this.path.length === 0) return;
-        this.path[0].x = this.start.x;
-        this.path[0].y = this.start.y;
-        this.path[this.path.length - 1].x = this.end.x;
-        this.path[this.path.length - 1].y = this.end.y;
-    }
-    draw(ctx) {
-        if (!this.path || this.path.length < 2) return;
-        if (this.potential === 1) ctx.strokeStyle = '#f6e05e'; else if (this.potential === -1) ctx.strokeStyle = '#4299e1'; else ctx.strokeStyle = this.color;
-        ctx.lineWidth = this.thickness; ctx.beginPath(); ctx.moveTo(this.path[0].x, this.path[0].y);
-        for (let i = 1; i < this.path.length; i++) { ctx.lineTo(this.path[i].x, this.path[i].y); }
-        ctx.stroke();
     }
 }
 
@@ -1080,6 +1099,7 @@ class Relay extends Component {
         this.knobs = {};
         this.adjustingKnobId = null;
         this.name = '';
+        this.resistance = 150;
 
         this.setRelayType(this.relayType);
     }
@@ -1088,13 +1108,12 @@ class Relay extends Component {
 
     setRelayType(type) {
         this.relayType = type;
-        this.data = JSON.parse(JSON.stringify(RELAY_DATA[type])); // Deep copy
+        this.data = JSON.parse(JSON.stringify(RELAY_DATA[type]));
         if (!this.data) {
             console.error(`找不到繼電器資料: ${type}`);
             return;
         }
 
-        // Reset state
         this.isEnergized = false;
         this.timers = {};
         this.knobs = {};
@@ -1153,7 +1172,6 @@ class Relay extends Component {
             }
         });
         
-        // Initialize timers based on functions
         this.data.componentFunctions.forEach(func => {
             if (func.type.startsWith('timed-') && func.knobId) {
                 this.timers[`timer_${func.knobId}`] = { active: false, elapsed: 0, delay: 0 };
@@ -1163,13 +1181,12 @@ class Relay extends Component {
     
     updatePosition(newX, newY) {
         super.updatePosition(newX, newY);
-        this._rebuildConnectors(); // Re-calculate connector positions
+        this._rebuildConnectors();
     }
 
     updateLogic(deltaTime) {
         if (!this.data) return;
 
-        // 1. Determine coil state
         const coilFunc = this.data.componentFunctions.find(f => f.type === 'coil');
         let isEnergizedThisFrame = false;
         if (coilFunc) {
@@ -1183,14 +1200,13 @@ class Relay extends Component {
         const wasEnergized = this.isEnergized;
         this.isEnergized = isEnergizedThisFrame;
 
-        // 2. Update timers
         for (const timerKey in this.timers) {
             const timer = this.timers[timerKey];
             const knobId = timerKey.split('_')[1];
             const knob = this.knobs[knobId];
 
             if (this.isEnergized) {
-                if (!wasEnergized) { // Just turned ON
+                if (!wasEnergized) {
                     timer.active = true;
                     timer.delay = (knob ? knob.value : 0) * 1000;
                     timer.elapsed = 0;
@@ -1198,7 +1214,7 @@ class Relay extends Component {
                 if (timer.active) {
                     timer.elapsed += deltaTime;
                 }
-            } else { // Not energized
+            } else {
                 timer.active = false;
                 timer.elapsed = 0;
             }
@@ -1209,7 +1225,16 @@ class Relay extends Component {
         if (!this.data) return [];
         const connections = [];
 
+        // Add coil connection for current calculation
+        const coilFunc = this.data.componentFunctions.find(f => f.type === 'coil');
+        if (coilFunc) {
+            const coil1 = this.connectors.find(c => c.originalId === coilFunc.connectors[0]);
+            const coil2 = this.connectors.find(c => c.originalId === coilFunc.connectors[1]);
+            if (coil1 && coil2) connections.push([coil1, coil2]);
+        }
+
         this.data.componentFunctions.forEach(func => {
+            if (func.type === 'coil') return;
             const conn1 = this.connectors.find(c => c.originalId === func.connectors[0]);
             const conn2 = this.connectors.find(c => c.originalId === func.connectors[1]);
             if (!conn1 || !conn2) return;
@@ -1303,8 +1328,6 @@ class Relay extends Component {
                 case 'line': ctx.beginPath(); ctx.moveTo(this.x + el.x1 - this.minX, this.y + el.y1 - this.minY); ctx.lineTo(this.x + el.x2 - this.minX, this.y + el.y2 - this.minY); ctx.stroke(); break;
                 case 'text':
                     ctx.font = el.font || '16px sans-serif';
-                    // Extract only the number from the name for replacement.
-                    // e.g., "TR1-Δ" -> "1", "PR2" -> "2"
                     const number = this.name.replace(/[^0-9]/g, ''); 
                     ctx.fillText(el.content.replace('{X}', number), x, y);
                     break;
@@ -1353,3 +1376,239 @@ class Relay extends Component {
     }
 }
 
+class Resistor extends Component {
+    constructor(x, y) {
+        super(x, y, 'resistor');
+        this.width = GRID_SIZE * 4;
+        this.height = GRID_SIZE * 2;
+        this.resistance = 10.0;
+        this._rebuildConnectors();
+    }
+    _rebuildConnectors() {
+        this.connectors = [
+            { id: `${this.id}-in`, parent: this, x: this.x, y: this.y + this.height / 2, potential: 0 },
+            { id: `${this.id}-out`, parent: this, x: this.x + this.width, y: this.y + this.height / 2, potential: 0 }
+        ];
+    }
+    getInternalConnections() {
+        return [[this.connectors[0], this.connectors[1]]];
+    }
+    draw(ctx) {
+        const baseIsPowered = this.connectors.some(c => c.potential !== 0);
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.lineWidth = 2;
+
+        const y = this.y + this.height / 2;
+        const w = this.width;
+        const h = this.height / 2;
+        const leadLength = w * 0.15;
+        const bodyWidth = w - (2 * leadLength);
+        const startX = this.x + leadLength;
+        
+        ctx.beginPath();
+        // Left lead
+        ctx.moveTo(this.x, y);
+        ctx.lineTo(startX, y);
+    
+        // Zig-zag body (3 peaks)
+        ctx.lineTo(startX + bodyWidth * (1/6), y + h);
+        ctx.lineTo(startX + bodyWidth * (3/6), y - h);
+        ctx.lineTo(startX + bodyWidth * (5/6), y + h);
+        ctx.lineTo(startX + bodyWidth, y);
+        
+        // Right lead
+        ctx.lineTo(this.x + w, y);
+        ctx.stroke();
+
+        this.connectors.forEach(c => drawConnector(ctx, c));
+
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = `${GRID_SIZE * 0.7}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`${this.resistance.toFixed(1)}Ω`, this.x + w / 2, this.y);
+    }
+}
+
+class Ammeter extends Component {
+    constructor(x, y) {
+        super(x, y, 'ammeter');
+        this.width = GRID_SIZE * 4;
+        this.height = GRID_SIZE * 4;
+        this.scaleType = '20A';
+        this.maxValue = 20;
+        this.measuredCurrent = 0;
+        this.name = 'A';
+        this._rebuildConnectors();
+    }
+    _rebuildConnectors() {
+        this.connectors = [
+            { id: `${this.id}-in`, parent: this, x: this.x, y: this.y + this.height / 2, potential: 0 },
+            { id: `${this.id}-out`, parent: this, x: this.x + this.width, y: this.y + this.height / 2, potential: 0 }
+        ];
+    }
+    getInternalConnections() {
+        return [[this.connectors[0], this.connectors[1]]];
+    }
+
+    setScaleType(type) {
+        this.scaleType = type;
+        if (type !== 'Custom') {
+            this.maxValue = parseInt(type, 10);
+        }
+        // For 'Custom', maxValue is set via the modal input.
+    }
+    
+    getAmmeterScaleValues() {
+        switch (this.scaleType) {
+            case '5A':   return [0, 1, 2, 3, 4, 5];
+            case '10A':  return [0, 5, 10];
+            case '15A':  return [0, 5, 10, 15];
+            case '20A':  return [0, 5, 10, 15, 20];
+            case '30A':  return [0, 10, 20, 30];
+            case '50A':  return [0, 10, 20, 30, 40, 50];
+            case '100A': return [0, 20, 40, 60, 80, 100];
+            case '200A': return [0, 50, 100, 150, 200];
+            case 'Custom':
+            default:
+                const ticks = [];
+                const step = this.maxValue / 5;
+                for (let i = 0; i <= 5; i++) {
+                    ticks.push(step * i);
+                }
+                return ticks;
+        }
+    }
+
+    draw(ctx) {
+        const baseIsPowered = this.connectors.some(c => c.potential !== 0);
+        ctx.strokeStyle = baseIsPowered ? '#f6e05e' : '#a0aec0';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.font = `bold ${GRID_SIZE * 0.9}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('A', this.x + GRID_SIZE * 0.7, this.y + GRID_SIZE * 0.8);
+        ctx.font = `bold ${GRID_SIZE * 0.7}px sans-serif`;
+        ctx.fillText('~', this.x + GRID_SIZE * 0.7, this.y + GRID_SIZE * 1.5);
+
+        const pivotX = this.x + this.width;
+        const pivotY = this.y + this.height;
+        const radius = this.width * 0.9;
+        
+        const startAngle = Math.PI; // 180 deg
+        const endAngle = Math.PI * 1.5; // 270 deg
+        const angleRange = endAngle - startAngle;
+
+        ctx.beginPath();
+        ctx.arc(pivotX, pivotY, radius, startAngle, endAngle);
+        ctx.strokeStyle = '#a0aec0';
+        ctx.stroke();
+        
+        // Draw scale
+        const scaleValues = this.getAmmeterScaleValues();
+        const scaleMax = scaleValues[scaleValues.length - 1] || this.maxValue;
+
+        ctx.font = `${GRID_SIZE * 0.5}px sans-serif`;
+        ctx.fillStyle = '#a0aec0';
+        
+        scaleValues.forEach(value => {
+            const ratio = scaleMax > 0 ? (value / scaleMax) : 0;
+            const angle = startAngle + ratio * angleRange;
+            const tickStartX = pivotX + Math.cos(angle) * radius;
+            const tickStartY = pivotY + Math.sin(angle) * radius;
+            const tickEndX = pivotX + Math.cos(angle) * (radius - 5);
+            const tickEndY = pivotY + Math.sin(angle) * (radius - 5);
+            ctx.beginPath();
+            ctx.moveTo(tickStartX, tickStartY);
+            ctx.lineTo(tickEndX, tickEndY);
+            ctx.stroke();
+
+            const textX = pivotX + Math.cos(angle) * (radius + 8);
+            const textY = pivotY + Math.sin(angle) * (radius + 8);
+            ctx.save();
+            ctx.translate(textX, textY);
+            ctx.rotate(angle + Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(Math.round(value), 0, 0);
+            ctx.restore();
+        });
+        
+        // Draw pointer
+        const ratio = scaleMax > 0 ? Math.min(1, Math.max(0, this.measuredCurrent / scaleMax)) : 0;
+        const pointerAngle = startAngle + ratio * angleRange;
+        
+        ctx.beginPath();
+        ctx.moveTo(pivotX, pivotY);
+        ctx.lineTo(pivotX + Math.cos(pointerAngle) * radius, pivotY + Math.sin(pointerAngle) * radius);
+        ctx.strokeStyle = '#e53e3e'; // red
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.arc(pivotX, pivotY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#e53e3e';
+        ctx.fill();
+
+        this.connectors.forEach(c => drawConnector(ctx, c));
+    }
+}
+
+
+class Wire {
+    constructor(startConnector, endConnector, path) {
+        this.id = generateId();
+        this.start = startConnector;
+        this.end = endConnector;
+        this.potential = 0;
+        this.current = 0;
+        this.isOvercurrent = false;
+        this.color = defaultWireColor;
+        this.thickness = defaultWireThickness;
+        this.path = path;
+    }
+    calculatePath() {
+        if (!this.start || !this.end || !this.path || !this.path.length === 0) return;
+        this.path[0].x = this.start.x;
+        this.path[0].y = this.start.y;
+        this.path[this.path.length - 1].x = this.end.x;
+        this.path[this.path.length - 1].y = this.end.y;
+    }
+    draw(ctx) {
+        if (!this.path || this.path.length < 2) return;
+        if (this.potential === 1) ctx.strokeStyle = '#f6e05e'; else if (this.potential === -1) ctx.strokeStyle = '#4299e1'; else ctx.strokeStyle = this.color;
+        ctx.lineWidth = this.thickness; ctx.beginPath(); ctx.moveTo(this.path[0].x, this.path[0].y);
+        for (let i = 1; i < this.path.length; i++) { ctx.lineTo(this.path[i].x, this.path[i].y); }
+        ctx.stroke();
+
+        if (this.isOvercurrent) {
+            ctx.strokeStyle = '#fef08a'; // yellow-200
+            ctx.lineWidth = 2;
+            let longestSegment = 0;
+            let segmentIndex = -1;
+            for (let i = 0; i < this.path.length - 1; i++) {
+                const dist = Math.hypot(this.path[i+1].x - this.path[i].x, this.path[i+1].y - this.path[i].y);
+                if (dist > longestSegment) {
+                    longestSegment = dist;
+                    segmentIndex = i;
+                }
+            }
+            if (segmentIndex !== -1) {
+                const p1 = this.path[segmentIndex];
+                const p2 = this.path[segmentIndex + 1];
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                
+                ctx.beginPath();
+                ctx.moveTo(midX - 5, midY + 8);
+                ctx.lineTo(midX + 5, midY + 2);
+                ctx.lineTo(midX - 5, midY - 2);
+                ctx.lineTo(midX + 5, midY - 8);
+                ctx.stroke();
+            }
+        }
+    }
+}
