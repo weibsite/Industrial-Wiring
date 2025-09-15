@@ -10,7 +10,7 @@ const RELAY_DATA = {
             { "id": 48, "type": "connector", "x": 540, "y": 180, "label": "" },
             { "id": 49, "type": "rect", "x": 460, "y": 80, "width": 100, "height": 120 },
             { "id": 51, "type": "circle", "x": 510, "y": 140, "radius": 20 },
-            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "PR(X)", "font": "16px sans-serif" },
+            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "PR{X}", "font": "16px sans-serif" },
             { "id": 57, "type": "connector", "x": 480, "y": 100, "label": "" },
             { "id": 58, "type": "connector", "x": 500, "y": 100, "label": "" },
             { "id": 59, "type": "connector", "x": 520, "y": 100, "label": "" },
@@ -47,7 +47,7 @@ const RELAY_DATA = {
             { "id": 53, "type": "connector", "x": 480, "y": 120, "label": "" },
             { "id": 54, "type": "connector", "x": 480, "y": 160, "label": "" },
             { "id": 55, "type": "connector", "x": 520, "y": 100, "label": "" },
-            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "PR(X)", "font": "16px sans-serif" },
+            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "PR{X}", "font": "16px sans-serif" },
             { "id": 57, "type": "text", "x": 490, "y": 87, "content": "1", "font": "16px sans-serif" },
             { "id": 58, "type": "text", "x": 470, "y": 87, "content": "2", "font": "16px sans-serif" },
             { "id": 59, "type": "text", "x": 550, "y": 87, "content": "10", "font": "16px sans-serif" },
@@ -96,7 +96,7 @@ const RELAY_DATA = {
             { "id": 31, "type": "line", "x1": 520, "y1": 140, "x2": 530, "y2": 140 },
             { "id": 32, "type": "line", "x1": 540, "y1": 140, "x2": 550, "y2": 140 },
             { "id": 33, "type": "line", "x1": 630, "y1": 120, "x2": 630, "y2": 120 },
-            { "id": 34, "type": "text", "x": 500, "y": 30, "content": "PR(X)", "font": "16px sans-serif" },
+            { "id": 34, "type": "text", "x": 500, "y": 30, "content": "PR{X}", "font": "16px sans-serif" },
             { "id": 37, "type": "connector", "x": 500, "y": 160, "label": "" },
             { "id": 38, "type": "text", "x": 490, "y": 70, "content": "3", "font": "16px sans-serif" },
             { "id": 39, "type": "text", "x": 510, "y": 70, "content": "2", "font": "16px sans-serif" },
@@ -132,7 +132,7 @@ const RELAY_DATA = {
             { "id": 47, "type": "connector", "x": 520, "y": 180, "label": "" },
             { "id": 48, "type": "connector", "x": 540, "y": 180, "label": "" },
             { "id": 49, "type": "rect", "x": 460, "y": 80, "width": 100, "height": 120 },
-            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR(X)", "font": "16px sans-serif" },
+            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR{X}", "font": "16px sans-serif" },
             { "id": 57, "type": "connector", "x": 480, "y": 100, "label": "" },
             { "id": 60, "type": "connector", "x": 500, "y": 100, "label": "" },
             { "id": 61, "type": "connector", "x": 520, "y": 100, "label": "" },
@@ -162,7 +162,7 @@ const RELAY_DATA = {
             { "id": 45, "type": "connector", "x": 480, "y": 180, "label": "" },
             { "id": 47, "type": "connector", "x": 520, "y": 180, "label": "" },
             { "id": 49, "type": "rect", "x": 460, "y": 80, "width": 100, "height": 120 },
-            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR-Δ(X)", "font": "16px sans-serif" },
+            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR{X}-Δ", "font": "16px sans-serif" },
             { "id": 64, "type": "connector", "x": 500, "y": 180, "label": "" },
             { "id": 66, "type": "connector", "x": 500, "y": 100, "label": "" },
             { "id": 68, "type": "connector", "x": 520, "y": 100, "label": "" },
@@ -192,7 +192,7 @@ const RELAY_DATA = {
             { "id": 45, "type": "connector", "x": 480, "y": 180, "label": "" },
             { "id": 47, "type": "connector", "x": 520, "y": 180, "label": "" },
             { "id": 49, "type": "rect", "x": 460, "y": 80, "width": 100, "height": 120 },
-            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR-Δ(X)", "font": "16px sans-serif" },
+            { "id": 56, "type": "text", "x": 490, "y": 60, "content": "TR{X}-Δ", "font": "16px sans-serif" },
             { "id": 64, "type": "connector", "x": 500, "y": 180, "label": "" },
             { "id": 73, "type": "knob", "x": 510, "y": 140, "radius": 30, "value": 0, "maxValue": 10 },
             { "id": 74, "type": "connector", "x": 540, "y": 180, "label": "" },
@@ -217,4 +217,3 @@ const RELAY_DATA = {
         ]
     }
 };
-

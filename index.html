@@ -37,6 +37,7 @@
             </div>
 
             <button id="rename-tool" class="tool-item" data-type="rename"><span class="desktop-text"><span class="icon">✏️</span><span>更名</span></span><span class="mobile-text">更名</span></button>
+            <button id="query-tool" class="tool-item" data-type="query"><span class="desktop-text"><span class="icon">🔍</span><span>查詢</span></span><span class="mobile-text">查詢</span></button>
             <button id="delete-tool" class="tool-item" data-type="delete"><span class="desktop-text"><span class="icon">🗑️</span><span>刪除</span></span><span class="mobile-text">刪除</span></button>
         </div>
 
@@ -160,6 +161,20 @@
         </div>
     </div>
 
+    <!-- Info Box for Query Tool -->
+    <div id="info-box" class="hidden absolute bg-gray-800 border border-gray-600 rounded-lg shadow-xl text-white p-4 z-30" style="max-width: 250px;">
+        <button id="info-box-close" class="absolute top-1 right-1 text-gray-400 hover:text-white text-2xl leading-none px-2">&times;</button>
+        <h4 id="info-box-title" class="font-bold mb-2 pr-6">元件資訊</h4>
+        <div id="info-box-content" class="text-sm"></div>
+    </div>
+
+    <!-- Image Viewer Modal -->
+    <div id="image-viewer-modal" class="modal-bg hidden items-center justify-center">
+        <span id="image-viewer-close" class="absolute top-4 right-6 text-white text-5xl font-bold cursor-pointer hover:text-gray-400">&times;</span>
+        <img class="max-w-[90vw] max-h-[90vh] rounded-md shadow-lg" id="enlarged-img" src="">
+    </div>
+
+    <script src="js/components_details_data.js"></script>
     <script src="js/terminalBlockData.js"></script>
     <script src="js/relayData.js"></script>
     <script src="js/components.js"></script>
@@ -167,3 +182,4 @@
 
 </body>
 </html>
+

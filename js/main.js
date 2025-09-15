@@ -35,6 +35,14 @@ const tbPoleOptions = document.getElementById('tb-pole-options');
 const tbOrientationOptions = document.getElementById('tb-orientation-options');
 const applyTbChangesBtn = document.getElementById('save-tb-modal');
 
+const infoBox = document.getElementById('info-box');
+const infoBoxTitle = document.getElementById('info-box-title');
+const infoBoxContent = document.getElementById('info-box-content');
+const infoBoxClose = document.getElementById('info-box-close');
+
+const imageViewerModal = document.getElementById('image-viewer-modal');
+const enlargedImg = document.getElementById('enlarged-img');
+const imageViewerClose = document.getElementById('image-viewer-close');
 
 const saveButton = document.getElementById('save-button');
 const loadButton = document.getElementById('load-button');
@@ -76,6 +84,8 @@ let renameInput = null;
 let componentBeingRenamed = null;
 
 let interactingComponent = null; // For components like relays with knobs
+let infoBoxTarget = null; // Component targeted by the info box
+let componentDescriptionMap = new Map(); // Store for component descriptions
 
 // --- Wire Settings ---
 let defaultWireColor = '#f6e05e';
@@ -289,6 +299,20 @@ function draw() {
         ctx.setLineDash([]);
     }
 
+    if (infoBoxTarget) {
+        ctx.strokeStyle = '#38bdf8'; // light blue
+        ctx.lineWidth = 3 / view.scale;
+        ctx.setLineDash([8 / view.scale, 4 / view.scale]);
+        ctx.strokeRect(infoBoxTarget.x - 6, infoBoxTarget.y - 6, infoBoxTarget.width + 12, infoBoxTarget.height + 12);
+        ctx.setLineDash([]);
+
+        // Update info box position continuously
+        const screenX = (infoBoxTarget.x + infoBoxTarget.width) * view.scale + view.tx + 10;
+        const screenY = infoBoxTarget.y * view.scale + view.ty;
+        infoBox.style.left = `${screenX}px`;
+        infoBox.style.top = `${screenY}px`;
+    }
+
     components.forEach(c => c.draw(ctx));
 
     const previewComponent = placementPreview || draggedGhost;
@@ -418,7 +442,57 @@ function runSimulation() {
 
 
 // --- EVENT HANDLERS ---
+function hideInfoBox() {
+    infoBoxTarget = null;
+    infoBox.classList.add('hidden');
+    draw();
+}
+
+function showInfoBox(component) {
+    infoBoxTarget = component;
+    const key = component.getDescriptionKey();
+    let descriptionText = componentDescriptionMap.get(key) || '此元件暫無說明，待補充';
+    const title = component.name || component.displayName || component.type;
+    
+    infoBoxTitle.textContent = title;
+    infoBoxContent.innerHTML = ''; // Clear previous content
+
+    // Replace user's line break symbol with actual HTML line breaks
+    descriptionText = descriptionText.replace(/;/g, '<br>');
+
+    const urlRegex = /(https?:\/\/[^\s]+?\.(?:jpg|jpeg|png|gif))/gi;
+    const parts = descriptionText.split(urlRegex);
+
+    parts.forEach(part => {
+        if (!part) return;
+        if (part.match(urlRegex)) {
+            // This is a URL
+            const img = document.createElement('img');
+            img.src = part;
+            img.className = 'info-thumbnail';
+            img.title = '點擊放大圖片';
+            img.onerror = () => { img.style.display = 'none'; }; // Hide if image fails to load
+            img.onclick = (e) => {
+                e.stopPropagation();
+                enlargedImg.src = img.src;
+                imageViewerModal.classList.remove('hidden');
+            };
+            infoBoxContent.appendChild(img);
+        } else {
+            // This is text, potentially with <br>
+            const textContainer = document.createElement('span');
+            textContainer.innerHTML = part; // Use innerHTML to render <br> tags
+            infoBoxContent.appendChild(textContainer);
+        }
+    });
+
+
+    infoBox.classList.remove('hidden');
+    draw(); // To show highlight and update position
+}
+
 function closeAllModals() {
+    hideInfoBox();
     contactorEditModal.classList.add('hidden');
     poleModal.classList.add('hidden');
     switchModal.classList.add('hidden');
@@ -454,6 +528,7 @@ function handleToolClick(toolElement) {
         if (activeToolType === 'move') canvas.style.cursor = 'grab';
         if (activeToolType === 'wire') canvas.style.cursor = 'crosshair';
         if (activeToolType === 'delete') canvas.style.cursor = 'not-allowed';
+        if (activeToolType === 'query') canvas.style.cursor = 'help';
         if (activeToolType === 'rename') {
             canvas.style.cursor = 'text';
             if (selectedComponent) {
@@ -470,8 +545,7 @@ function addComponentToCanvas(newComp) {
         case 'motor':
         case 'terminalBlock':
         case 'th-ry':
-        case 'relay':
-            newComp.name = { 'contactor': 'MC', 'motor': 'M', 'terminalBlock': 'TB', 'th-ry': 'TH', 'relay': 'R' }[newComp.type] + getNextNumberForType(newComp.type);
+            newComp.name = { 'contactor': 'MC', 'motor': 'M', 'terminalBlock': 'TB', 'th-ry': 'TH' }[newComp.type] + getNextNumberForType(newComp.type);
             break;
         case 'switch':
             newComp.name = 'PB' + getNextNumberForType('pushbutton');
@@ -479,7 +553,27 @@ function addComponentToCanvas(newComp) {
         case 'bulb':
             newComp.displayName = 'PL' + getNextNumberForType('bulb');
             break;
+        case 'relay':
+            { // Use a block to scope variables
+                let num, name;
+                if (['2C', '3C', '4C'].includes(newComp.relayType)) {
+                    num = getNextNumberForType('relay_pr');
+                    name = `PR${num}`;
+                } else if (newComp.relayType === 'ON-delay') {
+                    num = getNextNumberForType('relay_tr');
+                    name = `TR${num}`;
+                } else if (newComp.relayType.startsWith('Y-delta')) {
+                    num = getNextNumberForType('relay_tr_delta');
+                    name = `TR${num}-Δ`;
+                }
+                newComp.name = name;
+            }
+            break;
     }
+
+    // Apply description based on component type key
+    applyDescriptionToComponent(newComp);
+
     components.push(newComp);
 }
 
@@ -540,8 +634,14 @@ function handleCanvasInteraction(x, y, e = null) {
                 return; 
             }
         }
-
-        if (activeToolType === 'rename') {
+        
+        if (activeToolType === 'query') {
+            if (clickedComponent) {
+                showInfoBox(clickedComponent);
+            } else {
+                hideInfoBox();
+            }
+        } else if (activeToolType === 'rename') {
             if(clickedComponent) {
                 selectedComponent = clickedComponent;
                 enterRenameMode(clickedComponent);
@@ -586,9 +686,8 @@ function handleCanvasInteraction(x, y, e = null) {
                 if (clickedComponent.type === 'switch' && clickedComponent.switchType.startsWith('pushbutton')) return;
                 
                 if (typeof clickedComponent.handleInteraction === 'function') {
-                     // For relays, handleInteraction is now used for knobs.
                     if (clickedComponent.type !== 'relay') {
-                        clickedComponent.handleInteraction(x, y);
+                        clickedComponent.handleInteraction(x, y, 'click');
                     }
                 }
 
@@ -668,6 +767,13 @@ canvas.addEventListener('dblclick', (e) => {
 });
 
 function handleCanvasDoubleClick(x,y) {
+    // If a double-click happens while starting a wire, cancel the wire.
+    if (activeToolType === 'wire' && wiringState.start) {
+        wiringState = { start: null, end: null };
+        wiringPathPoints = [];
+        handleToolClick(document.getElementById('wire-tool')); // This deactivates the tool
+    }
+    closeAllModals(); // Close any open modal first
     const clickedComponent = components.find(c => c.isUnderMouse(x, y));
     if (clickedComponent) {
         selectedComponentForEdit = clickedComponent;
@@ -710,7 +816,6 @@ function openPoleModal(options) {
 canvas.addEventListener('mousedown', (e) => {
     const pos = getCanvasMousePos(e);
     
-    // Handle special interaction components first
     const compUnderMouse = components.find(c => c.isUnderMouse(pos.x, pos.y));
     if (compUnderMouse && typeof compUnderMouse.handleInteraction === 'function') {
         if (compUnderMouse.handleInteraction(pos.x, pos.y, 'mousedown', pos)) {
@@ -951,6 +1056,10 @@ function exitRenameMode() {
          componentBeingRenamed.name = newName;
     }
 
+    // After renaming, update its description (based on type, not new name)
+    applyDescriptionToComponent(componentBeingRenamed);
+
+
     renameInput.remove();
     renameInput = null;
     componentBeingRenamed = null;
@@ -1005,6 +1114,16 @@ function enterRenameMode(component) {
 }
 
 // --- MODAL LOGIC ---
+function applyDescriptionToComponent(component) {
+    if (!component) return;
+    const key = component.getDescriptionKey();
+    if (componentDescriptionMap.has(key)) {
+        component.description = componentDescriptionMap.get(key);
+    } else {
+        delete component.description;
+    }
+}
+
 closeContactorEditModalBtn.addEventListener('click', () => {
     if (selectedComponentForEdit && selectedComponentForEdit.type === 'contactor') {
         selectedComponentForEdit.name = contactorNameInput.value;
@@ -1014,7 +1133,18 @@ closeContactorEditModalBtn.addEventListener('click', () => {
     draw();
 });
 
-poleOptionsContainer.addEventListener('click', (e) => { if (e.target.classList.contains('pole-btn')) { const poles = e.target.dataset.poles; if (selectedComponentForEdit) { selectedComponentForEdit.setPoles(poles); draw(); } poleModal.classList.add('hidden'); selectedComponentForEdit = null; } });
+poleOptionsContainer.addEventListener('click', (e) => { 
+    if (e.target.classList.contains('pole-btn')) { 
+        const poles = e.target.dataset.poles; 
+        if (selectedComponentForEdit) { 
+            selectedComponentForEdit.setPoles(poles); 
+            applyDescriptionToComponent(selectedComponentForEdit);
+            draw(); 
+        } 
+        poleModal.classList.add('hidden'); 
+        selectedComponentForEdit = null; 
+    } 
+});
 closePoleModalBtn.addEventListener('click', () => { poleModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
 switchModal.addEventListener('click', (e) => {
@@ -1025,6 +1155,7 @@ switchModal.addEventListener('click', (e) => {
             const wasRotary = selectedComponentForEdit.switchType.startsWith('rotary');
             
             selectedComponentForEdit.setSwitchType(type);
+            applyDescriptionToComponent(selectedComponentForEdit);
             
             const isPushButton = selectedComponentForEdit.switchType.startsWith('pushbutton');
             const isRotary = selectedComponentForEdit.switchType.startsWith('rotary');
@@ -1042,10 +1173,32 @@ switchModal.addEventListener('click', (e) => {
 });
 closeSwitchModalBtn.addEventListener('click', () => { switchModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
-thRyModal.addEventListener('click', (e) => { if (e.target.classList.contains('th-ry-type-btn')) { const type = e.target.dataset.thRyType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'th-ry') { selectedComponentForEdit.setRelayType(type); draw(); } thRyModal.classList.add('hidden'); selectedComponentForEdit = null; } });
+thRyModal.addEventListener('click', (e) => { 
+    if (e.target.classList.contains('th-ry-type-btn')) { 
+        const type = e.target.dataset.thRyType; 
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'th-ry') { 
+            selectedComponentForEdit.setRelayType(type); 
+            applyDescriptionToComponent(selectedComponentForEdit);
+            draw(); 
+        } 
+        thRyModal.classList.add('hidden'); 
+        selectedComponentForEdit = null; 
+    } 
+});
 closeThRyModalBtn.addEventListener('click', () => { thRyModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
-motorModal.addEventListener('click', (e) => { if (e.target.classList.contains('motor-type-btn')) { const type = e.target.dataset.motorType; if (selectedComponentForEdit && selectedComponentForEdit.type === 'motor') { selectedComponentForEdit.setMotorType(type); draw(); } motorModal.classList.add('hidden'); selectedComponentForEdit = null; } });
+motorModal.addEventListener('click', (e) => { 
+    if (e.target.classList.contains('motor-type-btn')) { 
+        const type = e.target.dataset.motorType; 
+        if (selectedComponentForEdit && selectedComponentForEdit.type === 'motor') { 
+            selectedComponentForEdit.setMotorType(type); 
+            applyDescriptionToComponent(selectedComponentForEdit);
+            draw(); 
+        } 
+        motorModal.classList.add('hidden'); 
+        selectedComponentForEdit = null; 
+    } 
+});
 closeMotorModalBtn.addEventListener('click', () => { motorModal.classList.add('hidden'); selectedComponentForEdit = null; });
 
 // Relay Modal
@@ -1065,6 +1218,7 @@ relayOptionsContainer.addEventListener('click', e => {
         const type = e.target.dataset.relayType;
         if (selectedComponentForEdit && selectedComponentForEdit.type === 'relay') {
             selectedComponentForEdit.setRelayType(type);
+            applyDescriptionToComponent(selectedComponentForEdit);
         }
         relayModal.classList.add('hidden');
         selectedComponentForEdit = null;
@@ -1135,7 +1289,48 @@ applyTbChangesBtn.addEventListener('click', () => {
 });
 
 
-// --- SAVE/LOAD LOGIC ---
+// --- SAVE/LOAD/CSV LOGIC ---
+function parseDataFromArray(dataArray) {
+    const descriptionMap = new Map();
+    dataArray.forEach(row => {
+        const trimmedRow = row.trim();
+        if (trimmedRow) {
+            const separatorIndex = trimmedRow.indexOf(',');
+            if (separatorIndex > 0) {
+                const componentName = trimmedRow.substring(0, separatorIndex).trim();
+                const description = trimmedRow.substring(separatorIndex + 1).trim();
+                if (componentName) {
+                    descriptionMap.set(componentName, description);
+                }
+            }
+        }
+    });
+    return descriptionMap;
+}
+
+function applyDescriptions(descriptionMap) {
+    components.forEach(comp => {
+        applyDescriptionToComponent(comp);
+    });
+    // If an info box is currently open, refresh its content
+    if (infoBoxTarget) {
+        showInfoBox(infoBoxTarget);
+    }
+}
+
+function loadInitialDescriptions() {
+    try {
+        if (typeof componentDetailsData !== 'undefined') {
+            componentDescriptionMap = parseDataFromArray(componentDetailsData);
+        } else {
+            console.warn('找不到 componentDetailsData 資料。元件說明將無法使用。');
+        }
+    } catch (error) {
+        console.error("載入或解析內嵌元件說明時發生錯誤:", error);
+    }
+}
+
+
 function getNextNumberForType(type) {
     let prefix = '';
     let filterFn = (c) => c.type === type;
@@ -1145,7 +1340,6 @@ function getNextNumberForType(type) {
         case 'motor': prefix = 'M'; break;
         case 'terminalBlock': prefix = 'TB'; break;
         case 'th-ry': prefix = 'TH'; break;
-        case 'relay': prefix = 'R'; break;
         case 'bulb': prefix = 'PL'; break;
         case 'rotary_switch':
             prefix = 'COS';
@@ -1155,6 +1349,18 @@ function getNextNumberForType(type) {
              prefix = 'PB';
              filterFn = c => c.type === 'switch' && c.switchType.startsWith('pushbutton');
              break;
+        case 'relay_pr':
+            prefix = 'PR';
+            filterFn = c => c.type === 'relay' && ['2C', '3C', '4C'].includes(c.relayType);
+            break;
+        case 'relay_tr':
+            prefix = 'TR';
+            filterFn = c => c.type === 'relay' && c.relayType === 'ON-delay';
+            break;
+        case 'relay_tr_delta':
+            prefix = 'TR';
+            filterFn = c => c.type === 'relay' && c.relayType.startsWith('Y-delta');
+            break;
         default: return 1;
     }
 
@@ -1164,7 +1370,13 @@ function getNextNumberForType(type) {
     existing.forEach(comp => {
         const nameToTest = (type === 'bulb' && comp.displayName) ? comp.displayName : comp.name;
         if (nameToTest && nameToTest.startsWith(prefix)) {
-            const num = parseInt(nameToTest.substring(prefix.length));
+            let numStr = '';
+            if (type === 'relay_tr_delta') {
+                numStr = nameToTest.substring(prefix.length).replace('-Δ', '');
+            } else {
+                numStr = nameToTest.substring(prefix.length);
+            }
+            const num = parseInt(numStr);
             if (!isNaN(num) && num > maxNum) maxNum = num;
         }
     });
@@ -1188,6 +1400,7 @@ function saveLayout() {
             if (c.position) data.position = c.position;
             if (c.hasLeftAux !== undefined) data.hasLeftAux = c.hasLeftAux;
             if (c.knobs) data.knobs = c.knobs;
+            // No need to save description, it will be re-applied on load
             return data;
         }),
         wires: wires.map(w => ({
@@ -1258,6 +1471,10 @@ function reconstructLayout(layout) {
     });
 
     nextId = layout.nextId || 0;
+    
+    // Apply descriptions to the newly loaded components
+    applyDescriptions(componentDescriptionMap);
+
     draw();
 }
 
@@ -1274,6 +1491,9 @@ document.getElementById('bulb-tool-item').addEventListener('dblclick', () => {
     document.getElementById('bulb-tool-item').style.boxShadow = `0 0 10px 3px ${color}`;
     setTimeout(() => { document.getElementById('bulb-tool-item').style.boxShadow = ''; }, 300);
 });
+
+infoBoxClose.addEventListener('click', hideInfoBox);
+imageViewerClose.addEventListener('click', () => imageViewerModal.classList.add('hidden'));
 
 canvas.addEventListener('wheel', e => {
     if (renameInput) exitRenameMode();
@@ -1295,7 +1515,7 @@ canvas.addEventListener('wheel', e => {
     view.ty = mouseY - mousePointY * view.scale;
 
     draw();
-});
+}, { passive: true });
 
 canvas.addEventListener('touchstart', e => { e.preventDefault(); /* Touch events ommited for brevity */ }, { passive: false });
 canvas.addEventListener('touchmove', e => { e.preventDefault(); /* Touch events ommited for brevity */ }, { passive: false });
@@ -1304,6 +1524,7 @@ canvas.addEventListener('touchend', e => { e.preventDefault(); /* Touch events o
 saveButton.addEventListener('click', saveLayout);
 loadButton.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', loadLayout);
+
 
 let lastTime = 0;
 function animate(currentTime) {
@@ -1328,6 +1549,8 @@ function animate(currentTime) {
 }
 
 resizeCanvas();
+loadInitialDescriptions(); // Load descriptions on startup
 lastTime = performance.now();
 requestAnimationFrame(animate);
 wireColorPicker.style.backgroundColor = defaultWireColor;
+

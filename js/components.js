@@ -60,6 +60,8 @@ class Component {
     handleInteraction(x, y) { if (typeof this.toggle === 'function') this.toggle(); }
     toggle() {}
     getInternalConnections() { return []; }
+    // 新增: 取得用於查詢說明的鍵值
+    getDescriptionKey() { return this.type; }
     _rebuildConnectors() { throw new Error("RebuildConnectors must be implemented for " + this.type); }
 }
 
@@ -103,23 +105,11 @@ class NFB extends Component {
              this.connectors.push({ id: `${this.id}-out-${i}`, parent: this, x: xPos, y: this.y + this.height, type: 'output', pole: label, potential: 0 });
         });
     }
-    
-    /**
-     * [FIXED] 修正 NFB 的互動行為.
-     * 原始碼在 mousedown 和 click 事件都會觸發互動，導致狀態被切換兩次，看起來像沒反應。
-     * 此修正讓 NFB 只在 click 事件時切換狀態，恢復正常的指撥開關行為。
-     * @param {number} x - 滑鼠 x 座標
-     * @param {number} y - 滑鼠 y 座標
-     * @param {string} eventType - 事件類型 ('mousedown' 或 undefined)
-     */
-    handleInteraction(x, y, eventType) {
-        // 只有在非 'mousedown' 事件時才切換狀態 (即 click 事件觸發時)。
-        // 這樣可以避免 mousedown 和 click 連續觸發導致的雙重切換問題。
-        if (eventType !== 'mousedown') {
-            this.isOn = !this.isOn;
+    handleInteraction(x, y, eventType) { 
+        if (eventType === 'click' || eventType === 'touchend') {
+            this.isOn = !this.isOn; 
         }
     }
-
     getInternalConnections() {
         const connections = [];
         if (this.isOn) {
@@ -257,6 +247,7 @@ class Bulb extends Component {
 
 class Switch extends Component {
     constructor(x, y) { super(x, y, 'switch'); this.switchType = 'pushbutton_no'; this.isPressed = false; this.position = 1; this.name = ''; this._updateDimensions(); this._rebuildConnectors(); }
+    getDescriptionKey() { return this.switchType; }
     _updateDimensions() {
         if (this.switchType.startsWith('pushbutton')) {
             this.width = GRID_SIZE * 2;
@@ -644,6 +635,10 @@ class ThermalOverloadRelay extends Component {
         this._rebuildConnectors();
     }
 
+    getDescriptionKey() { return `${this.type}_${this.relayType}`; }
+    setRelayType(type) { this.relayType = type; this._updateDimensions(); this._rebuildConnectors(); }
+
+
     _updateDimensions() {
         this.width = GRID_SIZE * 7;
         this.height = GRID_SIZE * 3;
@@ -799,6 +794,9 @@ class Motor extends Component {
         this._updateDimensions();
         this._rebuildConnectors();
     }
+    
+    getDescriptionKey() { return `${this.type}_${this.motorType}`; }
+    setMotorType(type) { this.motorType = type; this._updateDimensions(); this._rebuildConnectors(); }
 
     _updateDimensions() {
         this.width = GRID_SIZE * 6;
@@ -1086,6 +1084,8 @@ class Relay extends Component {
         this.setRelayType(this.relayType);
     }
     
+    getDescriptionKey() { return this.relayType; }
+
     setRelayType(type) {
         this.relayType = type;
         this.data = JSON.parse(JSON.stringify(RELAY_DATA[type])); // Deep copy
@@ -1301,7 +1301,13 @@ class Relay extends Component {
                 case 'rect': ctx.strokeRect(x, y, el.width, el.height); break;
                 case 'circle': ctx.beginPath(); ctx.arc(x, y, el.radius, 0, Math.PI * 2); ctx.stroke(); break;
                 case 'line': ctx.beginPath(); ctx.moveTo(this.x + el.x1 - this.minX, this.y + el.y1 - this.minY); ctx.lineTo(this.x + el.x2 - this.minX, this.y + el.y2 - this.minY); ctx.stroke(); break;
-                case 'text': ctx.font = el.font || '16px sans-serif'; ctx.fillText(el.content.replace('(X)', `(${this.name})`), x, y); break;
+                case 'text':
+                    ctx.font = el.font || '16px sans-serif';
+                    // Extract only the number from the name for replacement.
+                    // e.g., "TR1-Δ" -> "1", "PR2" -> "2"
+                    const number = this.name.replace(/[^0-9]/g, ''); 
+                    ctx.fillText(el.content.replace('{X}', number), x, y);
+                    break;
                 case 'knob': this._drawKnob(ctx, x, y, el); break;
             }
         });
@@ -1346,3 +1352,4 @@ class Relay extends Component {
         ctx.restore();
     }
 }
+

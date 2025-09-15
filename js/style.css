@@ -69,6 +69,21 @@ canvas {
     box-sizing: border-box;
 }
 
+.info-thumbnail {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #a0aec0;
+    border-radius: 4px;
+    margin-top: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+.info-thumbnail:hover {
+    transform: scale(1.05);
+    border-color: #38bdf8;
+}
+
+
 @media (max-width: 768px) {
     .desktop-text { display: none; }
     .mobile-text { display: inline; }
