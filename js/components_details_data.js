@@ -21,12 +21,12 @@ const componentDetailsData = [
   "contactor,電磁接觸器 (Magnetic Contactor)，利用線圈電磁力來控制主接點開閉的自動開關，常用於控制馬達等高功率負載。",
 
   // --- 繼電器 (Relay) ---
-  "2C,2C (雙刀雙擲) 繼電器，提供兩組可切換的接點。",
-  "3C,3C (三刀雙擲) 繼電器，提供三組可切換的接點。",
-  "4C,4C (四刀雙擲) 繼電器，提供四組可切換的接點。",
-  "ON-delay,ON-delay (通電延遲) 限時電驛，線圈通電後，經過設定時間，接點才會動作。",
-  "Y-delta-27,Y-Δ 限時27電驛，專為Y-Δ啟動設計的計時器，提供特定的接點組合。",
-  "Y-delta-28,Y-Δ 限時28電驛，另一種專為Y-Δ啟動設計的計時器。",
+  "2C,2C電力電驛，提供兩組可切換的接點。https://weibsite.github.io/Industrial-Wiring/image/2c.jpg",
+  "3C,3C電力電驛，提供三組可切換的接點。https://weibsite.github.io/Industrial-Wiring/image/3c.jpg",
+  "4C,4C電力電驛，提供四組可切換的接點。https://weibsite.github.io/Industrial-Wiring/image/4c.jpg",
+  "ON-delay,ON-delay (通電延遲) 限時電驛，線圈通電後，經過設定時間，接點才會動作。https://weibsite.github.io/Industrial-Wiring/image/ondelay.jpg",
+  "Y-delta-27,Y-Δ 限時27電驛，專為Y-Δ啟動設計的計時器，提供特定的接點組合。https://weibsite.github.io/Industrial-Wiring/image/27.jpg",
+  "Y-delta-28,Y-Δ 限時28電驛，另一種專為Y-Δ啟動設計的計時器。https://weibsite.github.io/Industrial-Wiring/image/28.jpg",
 
   // --- 積熱電驛 (TH-RY) ---
   "th-ry_A,標準型積熱電驛 (Thermal Overload Relay)，用於保護馬達免於過載，此型號具有獨立的NO(97-98)與NC(95-96)接點。",
